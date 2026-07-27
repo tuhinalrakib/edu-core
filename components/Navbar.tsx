@@ -20,52 +20,54 @@ import {
 } from "lucide-react";
 
 export const Navbar: React.FC = () => {
-  const { user, logout, switchRole } = useAuth();
+  const { user, logout, switchRole, isDemo } = useAuth();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
 
   return (
     <header className="sticky top-0 z-50 glass-panel border-b border-slate-800/80">
-      {/* Quick Role Switcher Bar for Seamless Demo & Testing */}
-      <div className="bg-gradient-to-r from-purple-950 via-slate-900 to-indigo-950 px-4 py-1.5 text-xs flex justify-between items-center border-b border-purple-500/20">
-        <div className="flex items-center gap-2 text-purple-300 font-medium">
-          <Sparkles className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
-          <span>EduCore SaaS LMS Demo Role Switcher:</span>
+      {/* Quick Role Switcher Bar - ONLY visible for Guests / Demo Preview, disappears when user logs in */}
+      {(!user || isDemo) && (
+        <div className="bg-gradient-to-r from-purple-950 via-slate-900 to-indigo-950 px-4 py-1.5 text-xs flex justify-between items-center border-b border-purple-500/20">
+          <div className="flex items-center gap-2 text-purple-300 font-medium">
+            <Sparkles className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
+            <span>EduCore SaaS LMS Demo Role Switcher:</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => switchRole("student")}
+              className={`px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all ${
+                user?.role === "student" && isDemo
+                  ? "bg-purple-600 text-white shadow-sm"
+                  : "bg-slate-800 text-slate-300 hover:text-white"
+              }`}
+            >
+              👨‍🎓 Student Role
+            </button>
+            <button
+              onClick={() => switchRole("teacher")}
+              className={`px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all ${
+                user?.role === "teacher" && isDemo
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "bg-slate-800 text-slate-300 hover:text-white"
+              }`}
+            >
+              👨‍🏫 Teacher Role
+            </button>
+            <button
+              onClick={() => switchRole("admin")}
+              className={`px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all ${
+                user?.role === "admin" && isDemo
+                  ? "bg-rose-600 text-white shadow-sm"
+                  : "bg-slate-800 text-slate-300 hover:text-white"
+              }`}
+            >
+              👑 Admin Role
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => switchRole("student")}
-            className={`px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all ${
-              user?.role === "student"
-                ? "bg-purple-600 text-white shadow-sm"
-                : "bg-slate-800 text-slate-300 hover:text-white"
-            }`}
-          >
-            👨‍🎓 Student Role
-          </button>
-          <button
-            onClick={() => switchRole("teacher")}
-            className={`px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all ${
-              user?.role === "teacher"
-                ? "bg-blue-600 text-white shadow-sm"
-                : "bg-slate-800 text-slate-300 hover:text-white"
-            }`}
-          >
-            👨‍🏫 Teacher Role
-          </button>
-          <button
-            onClick={() => switchRole("admin")}
-            className={`px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all ${
-              user?.role === "admin"
-                ? "bg-rose-600 text-white shadow-sm"
-                : "bg-slate-800 text-slate-300 hover:text-white"
-            }`}
-          >
-            👑 Admin Role
-          </button>
-        </div>
-      </div>
+      )}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-4">
