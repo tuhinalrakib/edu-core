@@ -44,8 +44,8 @@ export default function Home() {
       {/* HERO SECTION */}
       <section className="relative py-20 lg:py-28 overflow-hidden">
         {/* Glowing background circles */}
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-purple-600/20 rounded-full blur-[140px] pointer-events-none" />
-        <div className="absolute top-1/3 right-10 w-[400px] h-[400px] bg-cyan-600/15 rounded-full blur-[120px] pointer-events-none" />
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-150 h-150 bg-purple-600/20 rounded-full blur-[140px] pointer-events-none" />
+        <div className="absolute top-1/3 right-10 w-100 h-100 bg-cyan-600/15 rounded-full blur-[120px] pointer-events-none" />
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="text-center max-w-3xl mx-auto mb-12">
@@ -125,7 +125,7 @@ export default function Home() {
                   href={`/courses?category=${encodeURIComponent(cat.name)}`}
                   className="glass-card p-5 rounded-2xl border border-slate-800/80 flex items-center gap-4 hover:border-purple-500/40 group"
                 >
-                  <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${cat.color} flex items-center justify-center text-white shadow-md shrink-0`}>
+                  <div className={`w-12 h-12 rounded-xl bg-linear-to-br ${cat.color} flex items-center justify-center text-white shadow-md shrink-0`}>
                     <IconComp className="w-6 h-6" />
                   </div>
                   <div>
@@ -201,7 +201,7 @@ export default function Home() {
       {/* CTA BANNER */}
       <section className="py-20 relative overflow-hidden">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="glass-panel rounded-3xl p-10 md:p-16 border border-purple-500/30 bg-gradient-to-br from-purple-950/40 via-slate-900 to-indigo-950/40 text-center relative z-10 shadow-2xl">
+          <div className="glass-panel rounded-3xl p-10 md:p-16 border border-purple-500/30 bg-linear-to-br from-purple-950/40 via-slate-900 to-indigo-950/40 text-center relative z-10 shadow-2xl">
             <h2 className="text-3xl sm:text-5xl font-black text-white mb-4">
               Ready to Start Your Learning Journey?
             </h2>

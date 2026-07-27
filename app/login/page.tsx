@@ -14,6 +14,7 @@ export default function LoginPage() {
   const emailParam = searchParams.get("email") || "";
   const roleParam = (searchParams.get("role") as "student" | "teacher" | "admin") || "student";
   const isVerifiedParam = searchParams.get("verified") === "true";
+  const isRegisteredParam = searchParams.get("registered") === "true";
 
   const [email, setEmail] = useState(emailParam || "");
   const [password, setPassword] = useState("");
@@ -29,11 +30,11 @@ export default function LoginPage() {
   const { login } = useAuth();
 
   useEffect(() => {
-    if (isVerifiedParam) {
+    if (isRegisteredParam || isVerifiedParam) {
       Swal.fire({
         icon: "success",
-        title: "Email Verified!",
-        text: "Your email has been verified successfully. You can now log in.",
+        title: "Account Created Successfully! 🎉",
+        text: `Your account (${emailParam || "user"}) has been registered. You can now log in below.`,
         background: "#0f172a",
         color: "#ffffff",
         confirmButtonColor: "#7c3aed",
@@ -42,7 +43,7 @@ export default function LoginPage() {
         },
       });
     }
-  }, [isVerifiedParam]);
+  }, [isVerifiedParam, isRegisteredParam, emailParam]);
 
   useEffect(() => {
     let timer: any;

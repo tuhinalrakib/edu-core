@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import {
   BookOpen,
@@ -20,10 +20,25 @@ import {
 } from "lucide-react";
 
 export const Navbar: React.FC = () => {
-  const { user, logout, switchRole, isDemo } = useAuth();
+  const { user, logout, switchRole, isDemo, clearDemoSession } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
+
+  // Automatically reset demo preview when visiting Home page so guest users get clean home screen
+  useEffect(() => {
+    if (pathname === "/" && isDemo) {
+      clearDemoSession();
+    }
+  }, [pathname, isDemo, clearDemoSession]);
+
+  const handleRoleSwitch = (role: "student" | "teacher" | "admin") => {
+    switchRole(role);
+    if (role === "admin") router.push("/admin/dashboard");
+    else if (role === "teacher") router.push("/teacher/dashboard");
+    else router.push("/student/dashboard");
+  };
 
   return (
     <header className="sticky top-0 z-50 glass-panel border-b border-slate-800/80">
@@ -36,7 +51,7 @@ export const Navbar: React.FC = () => {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => switchRole("student")}
+              onClick={() => handleRoleSwitch("student")}
               className={`px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all ${
                 user?.role === "student" && isDemo
                   ? "bg-purple-600 text-white shadow-sm"
@@ -46,7 +61,7 @@ export const Navbar: React.FC = () => {
               👨‍🎓 Student Role
             </button>
             <button
-              onClick={() => switchRole("teacher")}
+              onClick={() => handleRoleSwitch("teacher")}
               className={`px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all ${
                 user?.role === "teacher" && isDemo
                   ? "bg-blue-600 text-white shadow-sm"
@@ -56,7 +71,7 @@ export const Navbar: React.FC = () => {
               👨‍🏫 Teacher Role
             </button>
             <button
-              onClick={() => switchRole("admin")}
+              onClick={() => handleRoleSwitch("admin")}
               className={`px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all ${
                 user?.role === "admin" && isDemo
                   ? "bg-rose-600 text-white shadow-sm"
@@ -143,10 +158,12 @@ export const Navbar: React.FC = () => {
 
           {/* Right Action Menu */}
           <div className="flex items-center gap-3">
-            <button className="p-2 rounded-full text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors relative">
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-purple-500"></span>
-            </button>
+            {user && (
+              <button className="p-2 rounded-full text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors relative">
+                <Bell className="w-5 h-5" />
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-purple-500"></span>
+              </button>
+            )}
 
             {user ? (
               <div className="relative">
@@ -154,11 +171,17 @@ export const Navbar: React.FC = () => {
                   onClick={() => setRoleDropdownOpen(!roleDropdownOpen)}
                   className="flex items-center gap-2.5 p-1.5 rounded-full border border-slate-800 hover:border-slate-700 bg-slate-900/80 transition-all"
                 >
-                  <img
-                    src={user.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150"}
-                    alt={user.name}
-                    className="w-8 h-8 rounded-full object-cover ring-2 ring-purple-500/40"
-                  />
+                  {user.avatar ? (
+                    <img
+                      src={user.avatar}
+                      alt={user.name}
+                      className="w-8 h-8 rounded-full object-cover ring-2 ring-purple-500/40"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-600 via-indigo-600 to-violet-500 flex items-center justify-center text-white font-black text-xs ring-2 ring-purple-500/40 uppercase shadow-md">
+                      {user.name ? user.name.charAt(0) : "U"}
+                    </div>
+                  )}
                   <div className="hidden lg:flex flex-col text-left pr-1">
                     <span className="text-xs font-semibold text-slate-200 leading-none">{user.name}</span>
                     <span className="text-[10px] text-purple-400 font-medium capitalize mt-0.5">{user.role}</span>
@@ -168,15 +191,29 @@ export const Navbar: React.FC = () => {
 
                 {/* User Dropdown */}
                 {roleDropdownOpen && (
-                  <div className="absolute right-0 mt-2 w-56 glass-panel rounded-2xl shadow-2xl py-2 border border-slate-800 z-50">
-                    <div className="px-4 py-2 border-b border-slate-800">
-                      <p className="text-sm font-semibold text-white">{user.name}</p>
-                      <p className="text-xs text-slate-400">{user.email}</p>
+                  <div className="absolute right-0 mt-2 w-60 glass-panel rounded-2xl shadow-2xl py-2 border border-slate-800 z-50">
+                    <div className="px-4 py-2.5 border-b border-slate-800 flex items-center gap-3">
+                      {user.avatar ? (
+                        <img
+                          src={user.avatar}
+                          alt={user.name}
+                          className="w-9 h-9 rounded-full object-cover ring-2 ring-purple-500/40 shrink-0"
+                        />
+                      ) : (
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-purple-600 via-indigo-600 to-violet-500 flex items-center justify-center text-white font-black text-sm ring-2 ring-purple-500/40 uppercase shadow-md shrink-0">
+                          {user.name ? user.name.charAt(0) : "U"}
+                        </div>
+                      )}
+                      <div className="overflow-hidden">
+                        <p className="text-xs font-bold text-white truncate">{user.name}</p>
+                        <p className="text-[10px] text-slate-400 truncate">{user.email}</p>
+                      </div>
                     </div>
                     <div className="py-1">
                       {user.role === "student" && (
                         <Link
                           href="/student/dashboard"
+                          onClick={() => setRoleDropdownOpen(false)}
                           className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-300 hover:bg-purple-900/20 hover:text-purple-300"
                         >
                           <GraduationCap className="w-4 h-4 text-purple-400" />
@@ -186,6 +223,7 @@ export const Navbar: React.FC = () => {
                       {user.role === "teacher" && (
                         <Link
                           href="/teacher/dashboard"
+                          onClick={() => setRoleDropdownOpen(false)}
                           className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-300 hover:bg-purple-900/20 hover:text-purple-300"
                         >
                           <Briefcase className="w-4 h-4 text-blue-400" />
@@ -195,6 +233,7 @@ export const Navbar: React.FC = () => {
                       {user.role === "admin" && (
                         <Link
                           href="/admin/dashboard"
+                          onClick={() => setRoleDropdownOpen(false)}
                           className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-300 hover:bg-purple-900/20 hover:text-purple-300"
                         >
                           <ShieldAlert className="w-4 h-4 text-rose-400" />
@@ -204,7 +243,10 @@ export const Navbar: React.FC = () => {
                     </div>
                     <div className="border-t border-slate-800 pt-1">
                       <button
-                        onClick={logout}
+                        onClick={() => {
+                          setRoleDropdownOpen(false);
+                          logout();
+                        }}
                         className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-rose-400 hover:bg-rose-950/30 text-left"
                       >
                         <LogOut className="w-4 h-4" />

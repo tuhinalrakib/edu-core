@@ -1,6 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import { API_BASE_URL } from "@/lib/api";
 import {
   ShieldAlert,
   Users,
@@ -36,15 +39,138 @@ import {
   X,
   User,
   GraduationCap,
+  Upload,
+  Camera,
+  Mail,
+  Settings,
 } from "lucide-react";
 import { StatCard } from "@/components/StatCard";
 import { AdminCharts } from "@/components/charts/AdminCharts";
+import { EduCoreLoader } from "@/components/EduCoreLoader";
 import Swal from "sweetalert2";
 
 export default function AdminDashboard() {
+  const searchParams = useSearchParams();
+  const initialTab = (searchParams.get("tab") as any) || "overview";
+  const { user, updateUser, token } = useAuth();
+
   const [activeTab, setActiveTab] = useState<
-    "overview" | "teachers" | "students" | "courses" | "coupons" | "payments" | "analytics"
-  >("overview");
+    "overview" | "teachers" | "students" | "courses" | "coupons" | "payments" | "analytics" | "profile"
+  >(initialTab);
+
+  // Admin Profile Form State
+  const [profileName, setProfileName] = useState(user?.name || "Super Admin");
+  const [profileEmail, setProfileEmail] = useState(user?.email || "admin@educore.com");
+  const [profileAvatar, setProfileAvatar] = useState(user?.avatar || "");
+  const [profileTitle, setProfileTitle] = useState(user?.title || "Super Platform Administrator");
+  const [profileBio, setProfileBio] = useState(user?.bio || "Platform Administrator managing EduCore SaaS LMS operations.");
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      if (user.name) setProfileName(user.name);
+      if (user.email) setProfileEmail(user.email);
+      if (user.avatar) setProfileAvatar(user.avatar);
+      if (user.title) setProfileTitle(user.title);
+      if (user.bio) setProfileBio(user.bio);
+    }
+  }, [user]);
+
+  const handleAvatarFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingAvatar(true);
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("folder", "educore/avatars");
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/upload`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success && data.url) {
+        setProfileAvatar(data.url);
+        updateUser({ avatar: data.url });
+        Swal.fire({
+          icon: "success",
+          title: "Image Uploaded to Cloudinary! ☁️",
+          text: "Profile picture uploaded and updated successfully.",
+          background: "#0f172a",
+          color: "#ffffff",
+          confirmButtonColor: "#7c3aed",
+          timer: 2000,
+        });
+      } else {
+        throw new Error(data.message || "Cloudinary upload failed");
+      }
+    } catch (err: any) {
+      console.warn("Cloudinary upload fallback:", err.message);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === "string") {
+          setProfileAvatar(reader.result);
+          updateUser({ avatar: reader.result });
+        }
+      };
+      reader.readAsDataURL(file);
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingProfile(true);
+
+    try {
+      updateUser({
+        name: profileName,
+        email: profileEmail,
+        avatar: profileAvatar,
+        title: profileTitle,
+        bio: profileBio,
+      });
+
+      if (token) {
+        await fetch(`${API_BASE_URL}/users/profile`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            name: profileName,
+            email: profileEmail,
+            avatar: profileAvatar,
+            title: profileTitle,
+            bio: profileBio,
+          }),
+        });
+      }
+
+      Swal.fire({
+        icon: "success",
+        title: "Profile Updated Successfully! 🎉",
+        text: "Your admin profile details and picture have been updated.",
+        background: "#0f172a",
+        color: "#ffffff",
+        confirmButtonColor: "#7c3aed",
+        customClass: {
+          popup: "rounded-2xl border border-slate-800 shadow-2xl",
+        },
+      });
+    } catch (err: any) {
+      console.error("Save profile error:", err);
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
   // Search Filters
   const [teacherSearch, setTeacherSearch] = useState("");
@@ -193,18 +319,54 @@ export default function AdminDashboard() {
     },
   ]);
 
-  // 4. Categories & Tags State
-  const [categories, setCategories] = useState([
-    { id: "cat1", name: "Web Development", count: 42 },
-    { id: "cat2", name: "DevOps & Cloud", count: 18 },
-    { id: "cat3", name: "UI/UX Design", count: 25 },
-    { id: "cat4", name: "Data Science & AI", count: 31 },
+  // 4. Categories & Tags Dynamic State
+  const [categories, setCategories] = useState<any[]>([
+    { _id: "cat1", name: "Web Development", count: 42 },
+    { _id: "cat2", name: "DevOps & Cloud", count: 18 },
+    { _id: "cat3", name: "UI/UX Design", count: 25 },
+    { _id: "cat4", name: "Data Science & AI", count: 31 },
   ]);
 
-  const [tags, setTags] = useState(["React", "Next.js", "TypeScript", "Docker", "Python", "Figma", "AWS", "GraphQL"]);
+  const [tags, setTags] = useState<any[]>([
+    { _id: "t1", name: "React" },
+    { _id: "t2", name: "Next.js" },
+    { _id: "t3", name: "TypeScript" },
+    { _id: "t4", name: "Docker" },
+    { _id: "t5", name: "Python" },
+    { _id: "t6", name: "Figma" },
+    { _id: "t7", name: "AWS" },
+    { _id: "t8", name: "GraphQL" },
+  ]);
 
   const [newCatName, setNewCatName] = useState("");
   const [newTagName, setNewTagName] = useState("");
+
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [isAddingTag, setIsAddingTag] = useState(false);
+  const [isAddingCoupon, setIsAddingCoupon] = useState(false);
+
+  // Fetch dynamic Categories & Tags from Backend API
+  useEffect(() => {
+    const fetchCategoriesAndTags = async () => {
+      try {
+        const resCat = await fetch(`${API_BASE_URL}/categories`);
+        const dataCat = await resCat.json();
+        if (dataCat.success && Array.isArray(dataCat.categories)) {
+          setCategories(dataCat.categories);
+        }
+
+        const resTags = await fetch(`${API_BASE_URL}/categories/tags`);
+        const dataTags = await resTags.json();
+        if (dataTags.success && Array.isArray(dataTags.tags)) {
+          setTags(dataTags.tags);
+        }
+      } catch (err) {
+        console.warn("Backend categories/tags load error:", err);
+      }
+    };
+
+    fetchCategoriesAndTags();
+  }, []);
 
   // 5. Coupons Management State
   const [coupons, setCoupons] = useState([
@@ -403,60 +565,159 @@ export default function AdminDashboard() {
     });
   };
 
-  const handleAddCategory = (e: React.FormEvent) => {
+  const handleAddCategory = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCatName.trim()) return;
-    setCategories((prev) => [...prev, { id: "cat-" + Date.now(), name: newCatName.trim(), count: 0 }]);
-    setNewCatName("");
-    Swal.fire({
-      icon: "success",
-      title: "Category Added",
-      text: "New category created successfully.",
-      background: "#0f172a",
-      color: "#ffffff",
-      confirmButtonColor: "#7c3aed",
-    });
+    if (!newCatName.trim() || isAddingCategory) return;
+
+    setIsAddingCategory(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/categories`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newCatName.trim() }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setCategories((prev) => [data.category, ...prev]);
+        setNewCatName("");
+        Swal.fire({
+          icon: "success",
+          title: "Category Created",
+          text: `Category "${data.category.name}" created successfully in backend!`,
+          background: "#0f172a",
+          color: "#ffffff",
+          confirmButtonColor: "#7c3aed",
+        });
+      } else {
+        Swal.fire({
+          icon: "error",
+          title: "Error",
+          text: data.message || "Failed to create category.",
+          background: "#0f172a",
+          color: "#ffffff",
+          confirmButtonColor: "#7c3aed",
+        });
+      }
+    } catch (err: any) {
+      console.warn("Backend add category error:", err);
+      const fallbackCat = { _id: "cat-" + Date.now(), name: newCatName.trim(), count: 0 };
+      setCategories((prev) => [fallbackCat, ...prev]);
+      setNewCatName("");
+    } finally {
+      setIsAddingCategory(false);
+    }
   };
 
-  const handleDeleteCategory = (catId: string) => {
-    setCategories((prev) => prev.filter((c) => c.id !== catId));
+  const handleDeleteCategory = async (catId: string) => {
+    try {
+      await fetch(`${API_BASE_URL}/categories/${catId}`, { method: "DELETE" });
+      setCategories((prev) => prev.filter((c: any) => c._id !== catId && c.id !== catId));
+      Swal.fire({
+        icon: "success",
+        title: "Category Removed",
+        text: "Category deleted successfully from database.",
+        background: "#0f172a",
+        color: "#ffffff",
+        confirmButtonColor: "#7c3aed",
+      });
+    } catch (err) {
+      setCategories((prev) => prev.filter((c: any) => c._id !== catId && c.id !== catId));
+    }
   };
 
-  const handleAddTag = (e: React.FormEvent) => {
+  const handleAddTag = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTagName.trim()) return;
-    setTags((prev) => [...prev, newTagName.trim()]);
-    setNewTagName("");
+    if (!newTagName.trim() || isAddingTag) return;
+
+    setIsAddingTag(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/categories/tags`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newTagName.trim() }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setTags((prev) => [data.tag, ...prev]);
+        setNewTagName("");
+        Swal.fire({
+          icon: "success",
+          title: "Tag Created",
+          text: `Tag #${data.tag.name} created successfully in backend!`,
+          background: "#0f172a",
+          color: "#ffffff",
+          confirmButtonColor: "#7c3aed",
+        });
+      } else {
+        Swal.fire({
+          icon: "error",
+          title: "Error",
+          text: data.message || "Failed to create tag.",
+          background: "#0f172a",
+          color: "#ffffff",
+          confirmButtonColor: "#7c3aed",
+        });
+      }
+    } catch (err: any) {
+      const fallbackTag = { _id: "tag-" + Date.now(), name: newTagName.trim() };
+      setTags((prev) => [fallbackTag, ...prev]);
+      setNewTagName("");
+    } finally {
+      setIsAddingTag(false);
+    }
   };
 
-  const handleDeleteTag = (tagName: string) => {
-    setTags((prev) => prev.filter((t) => t !== tagName));
+  const handleDeleteTag = async (tagId: string) => {
+    try {
+      await fetch(`${API_BASE_URL}/categories/tags/${tagId}`, { method: "DELETE" });
+      setTags((prev) => prev.filter((t: any) => t._id !== tagId && t.id !== tagId && t.name !== tagId));
+      Swal.fire({
+        icon: "success",
+        title: "Tag Removed",
+        text: "Tag deleted successfully from database.",
+        background: "#0f172a",
+        color: "#ffffff",
+        confirmButtonColor: "#7c3aed",
+      });
+    } catch (err) {
+      setTags((prev) => prev.filter((t: any) => t._id !== tagId && t.id !== tagId && t.name !== tagId));
+    }
   };
 
-  const handleAddCoupon = (e: React.FormEvent) => {
+  const handleAddCoupon = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCoupon.code.trim()) return;
-    setCoupons((prev) => [
-      ...prev,
-      {
-        id: "cp-" + Date.now(),
-        code: newCoupon.code.toUpperCase().trim(),
-        type: newCoupon.type,
-        value: newCoupon.type === "Percentage" ? `${newCoupon.value}%` : `$${newCoupon.value}`,
-        expiry: newCoupon.expiry || "2026-12-31",
-        usage: `0 / ${newCoupon.limit}`,
-        status: "Active",
-      },
-    ]);
-    setNewCoupon({ code: "", type: "Percentage", value: "", expiry: "", limit: "100" });
-    Swal.fire({
-      icon: "success",
-      title: "Coupon Published",
-      text: "New promotional discount code is active.",
-      background: "#0f172a",
-      color: "#ffffff",
-      confirmButtonColor: "#7c3aed",
-    });
+    if (!newCoupon.code.trim() || isAddingCoupon) return;
+
+    setIsAddingCoupon(true);
+    try {
+      setCoupons((prev) => [
+        ...prev,
+        {
+          id: "cp-" + Date.now(),
+          code: newCoupon.code.toUpperCase().trim(),
+          type: newCoupon.type,
+          value: newCoupon.type === "Percentage" ? `${newCoupon.value}%` : `$${newCoupon.value}`,
+          expiry: newCoupon.expiry || "2026-12-31",
+          usage: `0 / ${newCoupon.limit}`,
+          status: "Active",
+        },
+      ]);
+      setNewCoupon({ code: "", type: "Percentage", value: "", expiry: "", limit: "100" });
+      Swal.fire({
+        icon: "success",
+        title: "Coupon Published",
+        text: "New promotional discount code is active.",
+        background: "#0f172a",
+        color: "#ffffff",
+        confirmButtonColor: "#7c3aed",
+      });
+    } finally {
+      setIsAddingCoupon(false);
+    }
   };
 
   const handleDeleteCoupon = (couponId: string) => {
@@ -492,7 +753,14 @@ export default function AdminDashboard() {
   const pendingCoursesCount = adminCourses.filter((c) => c.status === "pending").length;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+    <>
+      {isUploadingAvatar && (
+        <EduCoreLoader
+          message="Uploading Profile Image to Cloudinary Server..."
+          fullScreen={true}
+        />
+      )}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
       {/* Super Admin Top Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 glass-panel p-8 rounded-3xl border border-slate-800 bg-gradient-to-r from-slate-900 via-purple-950/40 to-slate-900">
         <div>
@@ -506,6 +774,13 @@ export default function AdminDashboard() {
             Manage teachers, students, course approvals, promotional coupons, payouts, and revenue analytics.
           </p>
         </div>
+        <button
+          onClick={() => setActiveTab("profile")}
+          className="flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-bold text-white gradient-button shadow-lg shadow-purple-500/20 self-start sm:self-auto shrink-0"
+        >
+          <Settings className="w-4 h-4 text-white" />
+          <span>Edit Admin Profile</span>
+        </button>
       </div>
 
       {/* 8 Primary Key Metrics Overview Cards */}
@@ -537,6 +812,7 @@ export default function AdminDashboard() {
           { id: "coupons", label: "Coupon Management", icon: Tag },
           { id: "payments", label: "Payment & Withdrawals", icon: CreditCard },
           { id: "analytics", label: "Analytics Hub", icon: TrendingUp },
+          { id: "profile", label: "My Profile Settings", icon: Settings },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -983,23 +1259,37 @@ export default function AdminDashboard() {
                   onChange={(e) => setNewCatName(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
                 />
-                <button type="submit" className="px-4 py-2 rounded-xl text-xs font-bold text-white gradient-button whitespace-nowrap">
-                  + Add Category
+                <button
+                  type="submit"
+                  disabled={isAddingCategory || !newCatName.trim()}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-white gradient-button whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 min-w-[120px]"
+                >
+                  {isAddingCategory ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+                      <span>Adding...</span>
+                    </>
+                  ) : (
+                    "+ Add Category"
+                  )}
                 </button>
               </form>
 
               <div className="divide-y divide-slate-800/60 pt-2 text-xs">
-                {categories.map((cat) => (
-                  <div key={cat.id} className="py-2.5 flex items-center justify-between">
-                    <span className="font-bold text-white">{cat.name}</span>
-                    <div className="flex items-center gap-3">
-                      <span className="text-slate-400 text-[11px]">{cat.count} courses</span>
-                      <button onClick={() => handleDeleteCategory(cat.id)} className="text-rose-400 hover:text-rose-300">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                {categories.map((cat: any) => {
+                  const catId = cat._id || cat.id;
+                  return (
+                    <div key={catId} className="py-2.5 flex items-center justify-between">
+                      <span className="font-bold text-white">{cat.name}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-slate-400 text-[11px]">{cat.count || 0} courses</span>
+                        <button onClick={() => handleDeleteCategory(catId)} className="text-rose-400 hover:text-rose-300">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -1018,23 +1308,38 @@ export default function AdminDashboard() {
                   onChange={(e) => setNewTagName(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
                 />
-                <button type="submit" className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 whitespace-nowrap">
-                  + Add Tag
+                <button
+                  type="submit"
+                  disabled={isAddingTag || !newTagName.trim()}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 min-w-[100px]"
+                >
+                  {isAddingTag ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+                      <span>Adding...</span>
+                    </>
+                  ) : (
+                    "+ Add Tag"
+                  )}
                 </button>
               </form>
 
               <div className="flex flex-wrap gap-2 pt-2">
-                {tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-900 border border-slate-800 text-slate-300"
-                  >
-                    <span>#{tag}</span>
-                    <button onClick={() => handleDeleteTag(tag)} className="text-slate-500 hover:text-rose-400">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))}
+                {tags.map((tag: any) => {
+                  const tagName = typeof tag === "string" ? tag : tag.name;
+                  const tagId = typeof tag === "string" ? tag : (tag._id || tag.id);
+                  return (
+                    <span
+                      key={tagId}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-900 border border-slate-800 text-slate-300"
+                    >
+                      <span>#{tagName}</span>
+                      <button onClick={() => handleDeleteTag(tagId)} className="text-slate-500 hover:text-rose-400">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -1102,8 +1407,19 @@ export default function AdminDashboard() {
             </div>
 
             <div className="flex items-end">
-              <button type="submit" className="w-full py-2 rounded-xl text-xs font-bold text-white gradient-button">
-                + Create Coupon
+              <button
+                type="submit"
+                disabled={isAddingCoupon || !newCoupon.code.trim()}
+                className="w-full py-2 rounded-xl text-xs font-bold text-white gradient-button disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+              >
+                {isAddingCoupon ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+                    <span>Creating...</span>
+                  </>
+                ) : (
+                  "+ Create Coupon"
+                )}
               </button>
             </div>
           </form>
@@ -1378,6 +1694,165 @@ export default function AdminDashboard() {
       )}
 
       {/* ========================================================================= */}
+      {/* 8. ADMIN PROFILE SETTINGS TAB */}
+      {/* ========================================================================= */}
+      {activeTab === "profile" && (
+        <div className="max-w-4xl mx-auto space-y-8">
+          <div className="glass-panel p-8 rounded-3xl border border-slate-800 space-y-8">
+            <div>
+              <h2 className="text-2xl font-black text-white flex items-center gap-2">
+                <ShieldAlert className="w-6 h-6 text-rose-400" />
+                <span>Admin Profile & Account Settings</span>
+              </h2>
+              <p className="text-xs text-slate-400 mt-1">
+                Update your administrator profile picture, name, designation title, and personal credentials.
+              </p>
+            </div>
+
+            <form onSubmit={handleSaveProfile} className="space-y-6">
+              {/* Profile Avatar Upload Section */}
+              <div className="flex flex-col sm:flex-row items-center gap-6 p-6 rounded-2xl bg-slate-950/60 border border-slate-800">
+                <div className="relative group">
+                  {profileAvatar ? (
+                    <img
+                      src={profileAvatar}
+                      alt={profileName}
+                      className="w-24 h-24 rounded-full object-cover ring-4 ring-purple-500/40 shadow-xl"
+                    />
+                  ) : (
+                    <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-purple-600 via-indigo-600 to-violet-500 flex items-center justify-center text-white font-black text-3xl ring-4 ring-purple-500/40 uppercase shadow-xl">
+                      {profileName ? profileName.charAt(0) : "A"}
+                    </div>
+                  )}
+                  <label
+                    htmlFor="avatar-file-input"
+                    className="absolute bottom-0 right-0 p-2.5 rounded-full gradient-button text-white cursor-pointer shadow-lg hover:scale-110 transition-transform"
+                    title="Upload New Profile Picture"
+                  >
+                    {isUploadingAvatar ? (
+                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                    ) : (
+                      <Camera className="w-4 h-4 text-white" />
+                    )}
+                  </label>
+                  <input
+                    id="avatar-file-input"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleAvatarFileUpload}
+                    className="hidden"
+                  />
+                </div>
+
+                <div className="flex-1 space-y-2 text-center sm:text-left">
+                  <h3 className="text-sm font-bold text-white">Profile Photo</h3>
+                  <p className="text-xs text-slate-400">
+                    Upload a photo or paste a direct image URL. Images are uploaded securely via Cloudinary.
+                  </p>
+                  <div className="flex flex-col sm:flex-row items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="https://example.com/avatar.jpg"
+                      value={profileAvatar}
+                      onChange={(e) => setProfileAvatar(e.target.value)}
+                      className="w-full sm:flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                    />
+                    <label
+                      htmlFor="avatar-file-input"
+                      className="w-full sm:w-auto px-4 py-2 rounded-xl bg-purple-900/40 text-purple-300 border border-purple-500/30 text-xs font-bold hover:bg-purple-900/60 cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Upload Photo</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              {/* Form Input Fields */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-2">Full Name</label>
+                  <div className="relative">
+                    <User className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={profileName}
+                      onChange={(e) => setProfileName(e.target.value)}
+                      required
+                      placeholder="Admin Name"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-10 pr-4 py-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-2">Email Address</label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="email"
+                      value={profileEmail}
+                      onChange={(e) => setProfileEmail(e.target.value)}
+                      required
+                      placeholder="admin@educore.com"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-10 pr-4 py-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-2">Admin Designation / Role Title</label>
+                  <input
+                    type="text"
+                    value={profileTitle}
+                    onChange={(e) => setProfileTitle(e.target.value)}
+                    placeholder="Super Platform Administrator"
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-2">System Role Permissions</label>
+                  <div className="px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-rose-400 flex items-center gap-2">
+                    <ShieldAlert className="w-4 h-4" />
+                    <span>Super Administrator (Full Access)</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-2">Bio / Admin Description</label>
+                <textarea
+                  rows={3}
+                  value={profileBio}
+                  onChange={(e) => setProfileBio(e.target.value)}
+                  placeholder="Tell students and instructors about your administrative role..."
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl p-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              <div className="pt-4 border-t border-slate-800 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={isSavingProfile}
+                  className="px-6 py-3.5 rounded-xl text-xs font-bold text-white gradient-button flex items-center gap-2 shadow-lg shadow-purple-500/20 disabled:opacity-50"
+                >
+                  {isSavingProfile ? (
+                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                  ) : (
+                    <>
+                      <CheckCircle className="w-4 h-4" />
+                      <span>Save Profile Changes</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* MODAL: VIEW TEACHER PROFILE & ANALYTICS */}
       {/* ========================================================================= */}
       {selectedTeacher && (
@@ -1490,5 +1965,6 @@ export default function AdminDashboard() {
         </div>
       )}
     </div>
-  );
+  </>
+);
 }

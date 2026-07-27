@@ -88,18 +88,18 @@ export default function RegisterPage() {
 
       Swal.fire({
         icon: "success",
-        title: "Account Created!",
-        text: data.message || "Please verify your email address to activate your account.",
+        title: "Account Created! 🎉",
+        text: data.message || "Registration successful! Redirecting to login...",
         background: "#0f172a",
         color: "#ffffff",
         confirmButtonColor: "#7c3aed",
-        timer: 2000,
+        timer: 1500,
         showConfirmButton: false,
         customClass: {
           popup: "rounded-2xl border border-slate-800 shadow-2xl",
         },
       }).then(() => {
-        router.push(`/verify-email?email=${encodeURIComponent(email)}&role=${role}`);
+        router.push(`/login?email=${encodeURIComponent(email)}&role=${role}&registered=true`);
       });
     } catch (error: any) {
       // Fallback or error message
