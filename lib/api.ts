@@ -16,7 +16,7 @@ export interface LessonType {
   _id: string;
   title: string;
   type: "video" | "pdf" | "audio" | "attachment";
-  videoProvider?: "cloudinary" | "youtube" | "vimeo" | "mp4";
+  videoProvider?: "cloudinary" | "youtube" | "gdrive" | "googledrive" | "vimeo" | "mp4";
   contentUrl: string;
   durationMinutes: number;
   description: string;

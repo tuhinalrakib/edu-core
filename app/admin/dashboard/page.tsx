@@ -181,14 +181,27 @@ export default function AdminDashboard() {
   const [selectedTeacher, setSelectedTeacher] = useState<any | null>(null);
   const [selectedStudent, setSelectedStudent] = useState<any | null>(null);
 
-  // 1. Teachers State
-  const [teachers, setTeachers] = useState([
+  // Add Teacher Modal State
+  const [isAddTeacherModalOpen, setIsAddTeacherModalOpen] = useState(false);
+  const [isCreatingTeacher, setIsCreatingTeacher] = useState(false);
+  const [newTeacherData, setNewTeacherData] = useState({
+    name: "",
+    email: "",
+    password: "",
+    title: "",
+    bio: "",
+    avatar: "",
+    status: "approved" as "approved" | "pending" | "suspended" | "rejected",
+  });
+
+  // 1. Teachers State (Dynamic API + LocalStorage + Default Fallback)
+  const [teachers, setTeachers] = useState<any[]>([
     {
       id: "t1",
       name: "Dr. Sarah Jenkins",
       email: "teacher@educore.com",
       title: "Senior Full-Stack Instructor",
-      status: "approved", // approved, pending, suspended, rejected
+      status: "approved",
       coursesCount: 8,
       studentsCount: 12450,
       totalEarnings: 45200,
@@ -226,6 +239,54 @@ export default function AdminDashboard() {
       bio: "Product Designer with 8+ years leading design systems at Figma agency partners.",
     },
   ]);
+
+  // Dynamic Fetch Teachers Effect
+  useEffect(() => {
+    const fetchTeachers = async () => {
+      try {
+        const headers: any = {};
+        if (token) headers.Authorization = `Bearer ${token}`;
+        const res = await fetch(`${API_BASE_URL}/users?role=teacher`, { headers });
+        const data = await res.json();
+
+        if (data.success && Array.isArray(data.users)) {
+          const apiTeachers = data.users.map((u: any) => ({
+            id: u._id || u.id,
+            name: u.name,
+            email: u.email,
+            title: u.title || "Senior Instructor",
+            status: u.teacherStatus || u.status || "approved",
+            coursesCount: u.coursesCount || 0,
+            studentsCount: u.studentsCount || 0,
+            totalEarnings: u.earnings || 0,
+            rating: u.rating || 4.9,
+            avatar: u.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
+            joinedDate: u.createdAt ? new Date(u.createdAt).toISOString().split("T")[0] : "2026-01-15",
+            bio: u.bio || "Professional course instructor on EduCore LMS.",
+          }));
+
+          const localTeachers: any[] = JSON.parse(localStorage.getItem("educore_teachers") || "[]");
+          const merged = [...apiTeachers];
+          localTeachers.forEach((lt) => {
+            if (!merged.some((m) => m.id === lt.id || m.email === lt.email)) {
+              merged.push(lt);
+            }
+          });
+          if (merged.length > 0) setTeachers(merged);
+          return;
+        }
+      } catch (err) {
+        console.warn("Backend teachers fetch warning, loading local storage:", err);
+      }
+
+      const storedTeachers = JSON.parse(localStorage.getItem("educore_teachers") || "[]");
+      if (storedTeachers.length > 0) {
+        setTeachers(storedTeachers);
+      }
+    };
+
+    fetchTeachers();
+  }, [token]);
 
   // 2. Students State
   const [students, setStudents] = useState([
@@ -368,6 +429,109 @@ export default function AdminDashboard() {
     fetchCategoriesAndTags();
   }, []);
 
+  // Fetch dynamic courses created by teachers
+  useEffect(() => {
+    const fetchAdminCourses = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/courses`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.courses)) {
+          const apiCourses = data.courses.map((c: any) => ({
+            id: c._id || c.id,
+            title: c.title,
+            teacher: typeof c.teacher === "object" ? c.teacher?.name : c.teacher || "Instructor",
+            teacherEmail: typeof c.teacher === "object" ? c.teacher?.email : "",
+            category: c.category,
+            price: c.price,
+            status: c.status ? String(c.status).toLowerCase() : "pending",
+            isFeatured: c.isFeatured || false,
+            students: c.totalStudents || 0,
+            thumbnail: c.thumbnail || "https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=400",
+          }));
+
+          const localCreated: any[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
+          const merged = [...apiCourses];
+          localCreated.forEach((lc) => {
+            if (!merged.some((m) => m.id === lc._id || m.id === lc.id || m.title === lc.title)) {
+              merged.push({
+                id: lc._id || lc.id || "lc-" + Date.now(),
+                title: lc.title,
+                teacher: typeof lc.teacher === "object" ? lc.teacher?.name : lc.teacher || "Instructor",
+                teacherEmail: typeof lc.teacher === "object" ? lc.teacher?.email : "",
+                category: lc.category,
+                price: lc.price,
+                status: lc.status ? String(lc.status).toLowerCase() : "pending",
+                isFeatured: lc.isFeatured || false,
+                students: lc.totalStudents || 0,
+                thumbnail: lc.thumbnail,
+              });
+            }
+          });
+          if (merged.length > 0) setAdminCourses(merged);
+          return;
+        }
+      } catch (err) {
+        console.warn("Backend courses fetch error:", err);
+      }
+
+      const localCreated: any[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
+      if (localCreated.length > 0) {
+        const formattedLocal = localCreated.map((lc) => ({
+          id: lc._id || lc.id || "lc-" + Date.now(),
+          title: lc.title,
+          teacher: typeof lc.teacher === "object" ? lc.teacher?.name : lc.teacher || "Instructor",
+          teacherEmail: typeof lc.teacher === "object" ? lc.teacher?.email : "",
+          category: lc.category,
+          price: lc.price,
+          status: lc.status ? String(lc.status).toLowerCase() : "pending",
+          isFeatured: lc.isFeatured || false,
+          students: lc.totalStudents || 0,
+          thumbnail: lc.thumbnail,
+        }));
+        setAdminCourses((prev) => {
+          const merged = [...prev];
+          formattedLocal.forEach((fl) => {
+            if (!merged.some((m) => m.id === fl.id || m.title === fl.title)) {
+              merged.unshift(fl);
+            }
+          });
+          return merged;
+        });
+      }
+    };
+
+    fetchAdminCourses();
+  }, []);
+
+  // Calculate dynamic stats for any teacher based on created courses
+  const getTeacherStats = (t: any) => {
+    if (!t) return { coursesCount: 0, studentsCount: 0, totalEarnings: 0 };
+    const teacherCourses = adminCourses.filter((c: any) => {
+      const cTeacher = typeof c.teacher === "object" ? c.teacher?.name : c.teacher;
+      const cEmail = typeof c.teacher === "object" ? c.teacher?.email : c.teacherEmail;
+      return (
+        (cTeacher && t.name && cTeacher.toLowerCase().trim() === t.name.toLowerCase().trim()) ||
+        (cEmail && t.email && cEmail.toLowerCase().trim() === t.email.toLowerCase().trim())
+      );
+    });
+
+    const calculatedCoursesCount = teacherCourses.length > 0 ? teacherCourses.length : (t.coursesCount || 0);
+    const calculatedStudentsCount = Math.max(
+      t.studentsCount || 0,
+      teacherCourses.reduce((acc: number, c: any) => acc + (c.students || c.totalStudents || 0), 0)
+    );
+    const calculatedEarnings = Math.max(
+      t.totalEarnings || t.earnings || 0,
+      teacherCourses.reduce((acc: number, c: any) => acc + ((c.price || 0) * (c.students || c.totalStudents || 0)), 0)
+    );
+
+    return {
+      coursesCount: calculatedCoursesCount,
+      studentsCount: calculatedStudentsCount,
+      totalEarnings: calculatedEarnings,
+    };
+  };
+
   // 5. Coupons Management State
   const [coupons, setCoupons] = useState([
     {
@@ -460,9 +624,31 @@ export default function AdminDashboard() {
     },
   ]);
 
-  // Action Handlers
-  const handleTeacherStatusChange = (teacherId: string, newStatus: "approved" | "suspended" | "rejected") => {
-    setTeachers((prev) => prev.map((t) => (t.id === teacherId ? { ...t, status: newStatus } : t)));
+  // Dynamic Action Handlers for Teachers
+  const handleTeacherStatusChange = async (teacherId: string, newStatus: "approved" | "suspended" | "rejected" | "pending") => {
+    try {
+      const headers: any = { "Content-Type": "application/json" };
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      await fetch(`${API_BASE_URL}/users/${teacherId}/status`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ status: newStatus }),
+      });
+    } catch (err) {
+      console.warn("Backend status update fallback to local state:", err);
+    }
+
+    setTeachers((prev) => {
+      const updated = prev.map((t) => (t.id === teacherId ? { ...t, status: newStatus } : t));
+      localStorage.setItem("educore_teachers", JSON.stringify(updated));
+      return updated;
+    });
+
+    if (selectedTeacher && selectedTeacher.id === teacherId) {
+      setSelectedTeacher({ ...selectedTeacher, status: newStatus });
+    }
+
     Swal.fire({
       icon: "success",
       title: "Teacher Status Updated",
@@ -470,6 +656,103 @@ export default function AdminDashboard() {
       background: "#0f172a",
       color: "#ffffff",
       confirmButtonColor: "#7c3aed",
+    });
+  };
+
+  const handleAddTeacher = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTeacherData.name.trim() || !newTeacherData.email.trim() || isCreatingTeacher) return;
+
+    setIsCreatingTeacher(true);
+    try {
+      const headers: any = { "Content-Type": "application/json" };
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      const res = await fetch(`${API_BASE_URL}/users/teacher`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(newTeacherData),
+      });
+
+      const data = await res.json();
+      const createdTeacher = data.success && data.teacher ? data.teacher : {
+        id: "t-" + Date.now(),
+        name: newTeacherData.name,
+        email: newTeacherData.email,
+        title: newTeacherData.title || "Senior Instructor",
+        status: newTeacherData.status || "approved",
+        coursesCount: 0,
+        studentsCount: 0,
+        totalEarnings: 0,
+        rating: 5.0,
+        avatar: newTeacherData.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
+        joinedDate: new Date().toISOString().split("T")[0],
+        bio: newTeacherData.bio || "Professional course instructor on EduCore LMS.",
+      };
+
+      setTeachers((prev) => {
+        const updated = [createdTeacher, ...prev];
+        localStorage.setItem("educore_teachers", JSON.stringify(updated));
+        return updated;
+      });
+
+      setIsAddTeacherModalOpen(false);
+      setNewTeacherData({ name: "", email: "", password: "", title: "", bio: "", avatar: "", status: "approved" });
+
+      Swal.fire({
+        icon: "success",
+        title: "Teacher Account Created! 🎉",
+        text: `Instructor ${createdTeacher.name} has been added successfully.`,
+        background: "#0f172a",
+        color: "#ffffff",
+        confirmButtonColor: "#7c3aed",
+      });
+    } catch (err: any) {
+      console.error("Create teacher error:", err);
+    } finally {
+      setIsCreatingTeacher(false);
+    }
+  };
+
+  const handleDeleteTeacher = async (teacherId: string) => {
+    Swal.fire({
+      title: "Delete Teacher Account?",
+      text: "This action will permanently delete the teacher's profile and management access.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, Delete",
+      cancelButtonText: "Cancel",
+      background: "#0f172a",
+      color: "#ffffff",
+      confirmButtonColor: "#ef4444",
+      cancelButtonColor: "#334155",
+    }).then(async (res) => {
+      if (res.isConfirmed) {
+        try {
+          const headers: any = {};
+          if (token) headers.Authorization = `Bearer ${token}`;
+          await fetch(`${API_BASE_URL}/users/${teacherId}`, { method: "DELETE", headers });
+        } catch (err) {
+          console.warn("Backend delete user fallback:", err);
+        }
+
+        setTeachers((prev) => {
+          const updated = prev.filter((t) => t.id !== teacherId);
+          localStorage.setItem("educore_teachers", JSON.stringify(updated));
+          return updated;
+        });
+
+        if (selectedTeacher?.id === teacherId) setSelectedTeacher(null);
+
+        Swal.fire({
+          icon: "success",
+          title: "Deleted",
+          text: "Teacher account deleted successfully.",
+          background: "#0f172a",
+          color: "#ffffff",
+          confirmButtonColor: "#7c3aed",
+        });
+      }
     });
   };
 
@@ -512,19 +795,42 @@ export default function AdminDashboard() {
     });
   };
 
-  const handleCourseStatusChange = (courseId: string, newStatus: "published" | "rejected") => {
-    setAdminCourses((prev) => prev.map((c) => (c.id === courseId ? { ...c, status: newStatus } : c)));
+  const handleCourseStatusChange = async (courseId: string, newStatus: "published" | "rejected") => {
+    try {
+      const headers: any = { "Content-Type": "application/json" };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      await fetch(`${API_BASE_URL}/courses/${courseId}/status`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ status: newStatus }),
+      });
+    } catch (err) {
+      console.warn("Backend course status update fallback to local storage:", err);
+    }
+
+    setAdminCourses((prev) => prev.map((c) => (c.id === courseId || c._id === courseId ? { ...c, status: newStatus } : c)));
+
+    // Update localStorage created courses list so Explore Catalog respects Admin approval immediately
+    const localCreated: any[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
+    const updatedLocal = localCreated.map((lc) => {
+      if (String(lc._id) === String(courseId) || String(lc.id) === String(courseId) || lc.title === courseId) {
+        return { ...lc, status: newStatus };
+      }
+      return lc;
+    });
+    localStorage.setItem("educore_created_courses", JSON.stringify(updatedLocal));
+
     Swal.fire({
       icon: "success",
       title: "Course Status Updated",
-      text: `Course has been ${newStatus === "published" ? "APPROVED & PUBLISHED" : "REJECTED"}`,
+      text: `Course has been ${newStatus === "published" ? "APPROVED & PUBLISHED to Catalog" : "REJECTED"}`,
       background: "#0f172a",
       color: "#ffffff",
       confirmButtonColor: "#7c3aed",
     });
   };
 
-  const handleDeleteCourse = (courseId: string) => {
+  const handleDeleteCourse = async (courseId: string) => {
     Swal.fire({
       title: "Delete Course?",
       text: "Are you sure you want to remove this course from the platform?",
@@ -536,9 +842,22 @@ export default function AdminDashboard() {
       color: "#ffffff",
       confirmButtonColor: "#ef4444",
       cancelButtonColor: "#334155",
-    }).then((res) => {
+    }).then(async (res) => {
       if (res.isConfirmed) {
-        setAdminCourses((prev) => prev.filter((c) => c.id !== courseId));
+        try {
+          const headers: any = {};
+          if (token) headers.Authorization = `Bearer ${token}`;
+          await fetch(`${API_BASE_URL}/courses/${courseId}`, { method: "DELETE", headers });
+        } catch (err) {
+          console.warn("Backend course delete fallback to local storage:", err);
+        }
+
+        setAdminCourses((prev) => prev.filter((c) => c.id !== courseId && c._id !== courseId));
+
+        const localCreated: any[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
+        const updatedLocal = localCreated.filter((lc) => String(lc._id) !== String(courseId) && String(lc.id) !== String(courseId));
+        localStorage.setItem("educore_created_courses", JSON.stringify(updatedLocal));
+
         Swal.fire({
           icon: "success",
           title: "Course Removed",
@@ -930,15 +1249,24 @@ export default function AdminDashboard() {
               <h2 className="text-xl font-bold text-white">Teacher Management</h2>
               <p className="text-xs text-slate-400">Approve new teacher applications, view profiles, earnings, and manage status.</p>
             </div>
-            <div className="relative w-full sm:w-64">
-              <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search teacher by name/email..."
-                value={teacherSearch}
-                onChange={(e) => setTeacherSearch(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
-              />
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <div className="relative flex-1 sm:w-64">
+                <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search teacher by name/email..."
+                  value={teacherSearch}
+                  onChange={(e) => setTeacherSearch(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                />
+              </div>
+              <button
+                onClick={() => setIsAddTeacherModalOpen(true)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white gradient-button flex items-center gap-1.5 shadow-lg shadow-purple-600/30 whitespace-nowrap"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add New Teacher</span>
+              </button>
             </div>
           </div>
 
@@ -962,26 +1290,28 @@ export default function AdminDashboard() {
                       t.name.toLowerCase().includes(teacherSearch.toLowerCase()) ||
                       t.email.toLowerCase().includes(teacherSearch.toLowerCase())
                   )
-                  .map((t) => (
-                    <tr key={t.id} className="hover:bg-slate-900/50">
-                      <td className="p-3">
-                        <div className="flex items-center gap-3">
-                          <img src={t.avatar} className="w-9 h-9 rounded-full object-cover border border-purple-500/30" />
-                          <div>
-                            <p className="font-bold text-white">{t.name}</p>
-                            <p className="text-[11px] text-slate-400">{t.email}</p>
+                  .map((t) => {
+                    const stats = getTeacherStats(t);
+                    return (
+                      <tr key={t.id} className="hover:bg-slate-900/50">
+                        <td className="p-3">
+                          <div className="flex items-center gap-3">
+                            <img src={t.avatar} className="w-9 h-9 rounded-full object-cover border border-purple-500/30" />
+                            <div>
+                              <p className="font-bold text-white">{t.name}</p>
+                              <p className="text-[11px] text-slate-400">{t.email}</p>
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="p-3">{t.title}</td>
-                      <td className="p-3 font-semibold text-slate-300">
-                        {t.coursesCount} Courses • {t.studentsCount.toLocaleString()} Students
-                      </td>
-                      <td className="p-3 font-bold text-emerald-400">${t.totalEarnings.toLocaleString()}</td>
+                        </td>
+                        <td className="p-3">{t.title}</td>
+                        <td className="p-3 font-semibold text-slate-300">
+                          {stats.coursesCount} Courses • {stats.studentsCount.toLocaleString()} Students
+                        </td>
+                        <td className="p-3 font-bold text-emerald-400">${stats.totalEarnings.toLocaleString()}</td>
                       <td className="p-3">
                         <div className="flex items-center gap-1 text-amber-400 font-bold">
                           <Star className="w-3.5 h-3.5 fill-amber-400" />
-                          <span>{t.rating}</span>
+                          <span>{t.rating || 5.0}</span>
                         </div>
                       </td>
                       <td className="p-3">
@@ -1027,9 +1357,17 @@ export default function AdminDashboard() {
                         >
                           Reject
                         </button>
+                        <button
+                          onClick={() => handleDeleteTeacher(t.id)}
+                          className="px-2 py-1 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-rose-300 font-bold border border-rose-500/30"
+                          title="Delete Teacher"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 inline" />
+                        </button>
                       </td>
                     </tr>
-                  ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1199,35 +1537,50 @@ export default function AdminDashboard() {
                           </button>
                         </td>
                         <td className="p-3">
-                          <span
-                            className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase ${
-                              c.status === "published"
-                                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                                : c.status === "pending"
-                                ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                                : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
-                            }`}
-                          >
-                            {c.status}
-                          </span>
+                          {(() => {
+                            const st = String(c.status || "pending").toLowerCase();
+                            const isPub = st === "published" || st === "approved";
+                            const isPend = st === "pending";
+                            return (
+                              <span
+                                className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase ${
+                                  isPub
+                                    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                    : isPend
+                                    ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                                    : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                                }`}
+                              >
+                                {isPub ? "PUBLISHED" : isPend ? "PENDING APPROVAL" : "REJECTED"}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td className="p-3 text-right space-x-1">
-                          {c.status !== "published" && (
-                            <button
-                              onClick={() => handleCourseStatusChange(c.id, "published")}
-                              className="px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 font-bold hover:bg-emerald-500/30"
-                            >
-                              Approve
-                            </button>
-                          )}
-                          {c.status === "published" && (
-                            <button
-                              onClick={() => handleCourseStatusChange(c.id, "rejected")}
-                              className="px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 font-bold hover:bg-amber-500/30"
-                            >
-                              Reject
-                            </button>
-                          )}
+                          {(() => {
+                            const st = String(c.status || "pending").toLowerCase();
+                            const isPub = st === "published" || st === "approved";
+                            return (
+                              <>
+                                {!isPub && (
+                                  <button
+                                    onClick={() => handleCourseStatusChange(c.id, "published")}
+                                    className="px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 font-bold hover:bg-emerald-500/30"
+                                  >
+                                    Approve
+                                  </button>
+                                )}
+                                {isPub && (
+                                  <button
+                                    onClick={() => handleCourseStatusChange(c.id, "rejected")}
+                                    className="px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 font-bold hover:bg-amber-500/30"
+                                  >
+                                    Reject
+                                  </button>
+                                )}
+                              </>
+                            );
+                          })()}
                           <button
                             onClick={() => handleDeleteCourse(c.id)}
                             className="px-2.5 py-1 rounded bg-rose-500/20 text-rose-300 font-bold hover:bg-rose-500/30"
@@ -1853,6 +2206,136 @@ export default function AdminDashboard() {
       )}
 
       {/* ========================================================================= */}
+      {/* MODAL: ADD NEW TEACHER */}
+      {/* ========================================================================= */}
+      {isAddTeacherModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 max-w-lg w-full rounded-3xl p-6 space-y-6 shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Plus className="w-5 h-5 text-purple-400" />
+                <span>Add New Instructor Account</span>
+              </h3>
+              <button
+                onClick={() => setIsAddTeacherModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddTeacher} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Instructor Full Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Dr. Robert Vance"
+                  value={newTeacherData.name}
+                  onChange={(e) => setNewTeacherData({ ...newTeacherData, name: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Email Address *</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="e.g. robert.vance@educore.com"
+                  value={newTeacherData.email}
+                  onChange={(e) => setNewTeacherData({ ...newTeacherData, email: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Specialization Title / Designation</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Senior Machine Learning Specialist"
+                  value={newTeacherData.title}
+                  onChange={(e) => setNewTeacherData({ ...newTeacherData, title: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Initial Password (Optional)</label>
+                <input
+                  type="password"
+                  placeholder="Default: 12345678"
+                  value={newTeacherData.password}
+                  onChange={(e) => setNewTeacherData({ ...newTeacherData, password: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Avatar Image URL (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="https://images.unsplash.com/..."
+                  value={newTeacherData.avatar}
+                  onChange={(e) => setNewTeacherData({ ...newTeacherData, avatar: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Teacher Account Status</label>
+                <select
+                  value={newTeacherData.status}
+                  onChange={(e) => setNewTeacherData({ ...newTeacherData, status: e.target.value as any })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-purple-500 font-semibold"
+                >
+                  <option value="approved">Approved (Active Immediately)</option>
+                  <option value="pending">Pending Approval</option>
+                  <option value="suspended">Suspended</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Biography / Specialization Info</label>
+                <textarea
+                  rows={2}
+                  placeholder="Brief summary of teaching experience and expertise..."
+                  value={newTeacherData.bio}
+                  onChange={(e) => setNewTeacherData({ ...newTeacherData, bio: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-800 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsAddTeacherModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreatingTeacher}
+                  className="px-5 py-2 rounded-xl text-xs font-bold text-white gradient-button flex items-center gap-1.5 shadow-lg shadow-purple-600/30 disabled:opacity-50"
+                >
+                  {isCreatingTeacher ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+                  ) : (
+                    <>
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      <span>Create Teacher</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* MODAL: VIEW TEACHER PROFILE & ANALYTICS */}
       {/* ========================================================================= */}
       {selectedTeacher && (
@@ -1867,10 +2350,19 @@ export default function AdminDashboard() {
 
             <div className="flex items-center gap-4">
               <img src={selectedTeacher.avatar} className="w-16 h-16 rounded-2xl object-cover border border-purple-500/40 shadow-lg" />
-              <div>
+              <div className="space-y-1">
                 <h4 className="text-lg font-bold text-white">{selectedTeacher.name}</h4>
                 <p className="text-xs text-purple-400 font-semibold">{selectedTeacher.title}</p>
                 <p className="text-xs text-slate-400">{selectedTeacher.email}</p>
+                <span className={`inline-block px-2.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                  selectedTeacher.status === "approved"
+                    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                    : selectedTeacher.status === "pending"
+                    ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                    : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                }`}>
+                  Status: {selectedTeacher.status}
+                </span>
               </div>
             </div>
 
@@ -1879,25 +2371,55 @@ export default function AdminDashboard() {
               {selectedTeacher.bio}
             </div>
 
-            <div className="grid grid-cols-3 gap-3 text-center">
-              <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
-                <span className="text-[10px] text-slate-400 uppercase font-bold block">Courses</span>
-                <span className="text-lg font-black text-white">{selectedTeacher.coursesCount}</span>
-              </div>
-              <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
-                <span className="text-[10px] text-slate-400 uppercase font-bold block">Students</span>
-                <span className="text-lg font-black text-purple-400">{selectedTeacher.studentsCount.toLocaleString()}</span>
-              </div>
-              <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
-                <span className="text-[10px] text-slate-400 uppercase font-bold block">Earnings</span>
-                <span className="text-lg font-black text-emerald-400">${selectedTeacher.totalEarnings.toLocaleString()}</span>
-              </div>
-            </div>
+            {(() => {
+              const modalStats = getTeacherStats(selectedTeacher);
+              return (
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Courses</span>
+                    <span className="text-lg font-black text-white">{modalStats.coursesCount}</span>
+                  </div>
+                  <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Students</span>
+                    <span className="text-lg font-black text-purple-400">{modalStats.studentsCount.toLocaleString()}</span>
+                  </div>
+                  <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Earnings</span>
+                    <span className="text-lg font-black text-emerald-400">${modalStats.totalEarnings.toLocaleString()}</span>
+                  </div>
+                </div>
+              );
+            })()}
 
-            <div className="pt-2 flex justify-end">
+            <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-1.5">
+                {selectedTeacher.status !== "approved" && (
+                  <button
+                    onClick={() => handleTeacherStatusChange(selectedTeacher.id, "approved")}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-bold border border-emerald-500/30"
+                  >
+                    Approve
+                  </button>
+                )}
+                {selectedTeacher.status === "approved" && (
+                  <button
+                    onClick={() => handleTeacherStatusChange(selectedTeacher.id, "suspended")}
+                    className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold border border-amber-500/30"
+                  >
+                    Suspend
+                  </button>
+                )}
+                <button
+                  onClick={() => handleDeleteTeacher(selectedTeacher.id)}
+                  className="px-3 py-1.5 rounded-xl bg-rose-950/60 hover:bg-rose-900 text-rose-300 font-bold border border-rose-500/30"
+                >
+                  Delete
+                </button>
+              </div>
+
               <button
                 onClick={() => setSelectedTeacher(null)}
-                className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-slate-800 hover:bg-slate-700"
+                className="px-5 py-2 rounded-xl font-bold text-white bg-slate-800 hover:bg-slate-700"
               >
                 Close Profile
               </button>

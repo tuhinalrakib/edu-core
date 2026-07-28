@@ -334,6 +334,13 @@ export default function TeacherDashboard() {
                         <option value="Archived">Archive</option>
                       </select>
                       <Link
+                        href={`/student/learn/${course.slug || course._id}`}
+                        className="p-1.5 text-emerald-400 hover:text-emerald-300 inline-block"
+                        title="Preview Course Player"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </Link>
+                      <Link
                         href="/teacher/courses/create"
                         className="p-1.5 text-purple-400 hover:text-purple-300 inline-block"
                         title="Edit Course"

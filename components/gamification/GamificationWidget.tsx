@@ -39,7 +39,7 @@ export const GamificationWidget: React.FC = () => {
 
         {/* Level XP Bar */}
         <div className="w-full h-3 rounded-full bg-slate-900 overflow-hidden border border-slate-800">
-          <div className="h-full bg-gradient-to-r from-amber-500 via-purple-500 to-indigo-500 w-[80%]" />
+          <div className="h-full bg-linear-to-r from-amber-500 via-purple-500 to-indigo-500 w-[80%]" />
         </div>
 
         {/* Badges Collection */}

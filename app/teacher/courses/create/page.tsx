@@ -15,6 +15,7 @@ import {
   Cloud,
   Youtube,
   Upload,
+  Loader2,
   Link as LinkIcon,
   Code,
   FileCode,
@@ -30,15 +31,18 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 import { EduCoreLoader } from "@/components/EduCoreLoader";
+import { UniversalVideoPlayer } from "@/components/video/UniversalVideoPlayer";
 import Swal from "sweetalert2";
 import { API_BASE_URL } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 
 type LessonType = "video" | "pdf" | "audio" | "attachment" | "quiz" | "assignment";
-type VideoProvider = "cloudinary" | "youtube" | "vimeo" | "mp4";
+type VideoProvider = "cloudinary" | "youtube" | "gdrive" | "googledrive" | "vimeo" | "mp4";
 type QuestionType = "mcq" | "true_false" | "fill_blank" | "coding";
 
 export default function CourseBuilderPage() {
   const router = useRouter();
+  const { user } = useAuth();
 
   const [title, setTitle] = useState("React 19 & Next.js 15 Full-Stack SaaS Masterclass");
   const [category, setCategory] = useState("Web Development");
@@ -48,7 +52,7 @@ export default function CourseBuilderPage() {
     "Learn to build full-stack web applications with React 19, Next.js 15 App Router, TypeScript, and Express."
   );
   const [thumbnail, setThumbnail] = useState("");
-  const [courseStatus, setCourseStatus] = useState<"Draft" | "Published" | "Archived">("Published");
+  const [courseStatus, setCourseStatus] = useState<string>("pending");
 
   const [categoriesList, setCategoriesList] = useState<string[]>([
     "Web Development",
@@ -196,14 +200,17 @@ export default function CourseBuilderPage() {
   } | null>(null);
 
   const [isUploadingVideo, setIsUploadingVideo] = useState(false);
+  const [isSavingCourse, setIsSavingCourse] = useState(false);
 
   const handleLessonVideoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !activeModalLesson) return;
 
     setIsUploadingVideo(true);
+    const provider = activeModalLesson.lesson.videoProvider || "cloudinary";
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("provider", provider);
     formData.append("folder", "educore/course_videos");
 
     try {
@@ -215,19 +222,20 @@ export default function CourseBuilderPage() {
       const data = await res.json();
 
       if (res.ok && data.success && data.url) {
+        const providerName = data.provider === "vimeo" ? "Vimeo" : "Cloudinary";
         setActiveModalLesson({
           ...activeModalLesson,
           lesson: {
             ...activeModalLesson.lesson,
             contentUrl: data.url,
-            videoProvider: "cloudinary",
+            videoProvider: data.provider || provider,
           },
         });
 
         Swal.fire({
           icon: "success",
-          title: "Video Uploaded to Cloudinary! 🎥",
-          text: "Lesson video file uploaded and attached successfully.",
+          title: `Video Uploaded to ${providerName}! 🎥`,
+          text: `Lesson video file uploaded and attached successfully.`,
           background: "#0f172a",
           color: "#ffffff",
           confirmButtonColor: "#7c3aed",
@@ -423,6 +431,12 @@ export default function CourseBuilderPage() {
       description,
       thumbnail: thumbnail || "",
       status: courseStatus,
+      teacher: {
+        name: user?.name || "Senior Instructor",
+        email: user?.email || "",
+        avatar: user?.avatar || "",
+      },
+      teacherEmail: user?.email || "",
       totalStudents: 0,
       rating: 5.0,
       sections,
@@ -435,36 +449,55 @@ export default function CourseBuilderPage() {
     localStorage.setItem("educore_created_courses", JSON.stringify(updatedCoursesList));
 
     // 2. Attempt POST to backend /api/courses
+    setIsSavingCourse(true);
     try {
-      await fetch(`${API_BASE_URL}/courses`, {
+      const res = await fetch(`${API_BASE_URL}/courses`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newCourseObj),
       });
-    } catch (err: any) {
-      console.warn("Backend save course fallback:", err.message);
-    }
 
-    Swal.fire({
-      icon: "success",
-      title: "Course Saved & Published! 🎉",
-      text: `Course "${title}" has been saved and added to your instructor dashboard with status: ${courseStatus}.`,
-      background: "#0f172a",
-      color: "#ffffff",
-      confirmButtonColor: "#7c3aed",
-    }).then(() => {
-      router.push("/teacher/dashboard");
-    });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || "Failed to save course on backend server.");
+      }
+
+      Swal.fire({
+        icon: "success",
+        title: "Course Saved & Published! 🎉",
+        text: `Course "${title}" has been saved and added to your instructor dashboard with status: ${courseStatus}.`,
+        background: "#0f172a",
+        color: "#ffffff",
+        confirmButtonColor: "#7c3aed",
+      }).then(() => {
+        router.push("/teacher/dashboard");
+      });
+    } catch (err: any) {
+      console.error("Backend save course error:", err.message);
+      Swal.fire({
+        icon: "error",
+        title: "Course Creation Failed ❌",
+        text: err.message || "Server error occurred while saving the course.",
+        background: "#0f172a",
+        color: "#ffffff",
+        confirmButtonColor: "#ef4444",
+      });
+    } finally {
+      setIsSavingCourse(false);
+    }
   };
 
   return (
     <>
-      {(isUploadingVideo || isUploadingThumbnail) && (
+      {(isUploadingVideo || isUploadingThumbnail || isSavingCourse) && (
         <EduCoreLoader
           message={
-            isUploadingThumbnail
+            isSavingCourse
+              ? "Saving & Publishing Course to EduCore Database..."
+              : isUploadingThumbnail
               ? "Uploading Course Thumbnail to Cloudinary..."
-              : "Uploading Lesson Video to Cloudinary Server..."
+              : "Uploading Lesson Video to Server..."
           }
           fullScreen={true}
         />
@@ -906,24 +939,31 @@ export default function CourseBuilderPage() {
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-300 mb-1">Video Provider</label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {(["cloudinary", "youtube", "vimeo", "mp4"] as VideoProvider[]).map((p) => (
+                    <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+                      {[
+                        { id: "youtube", label: "YouTube" },
+                        { id: "gdrive", label: "Google Drive" },
+                        { id: "vimeo", label: "Vimeo" },
+                        { id: "mp4", label: "Direct MP4" },
+                        { id: "cloudinary", label: "Cloudinary" },
+                      ].map((p) => (
                         <button
-                          key={p}
+                          key={p.id}
                           type="button"
                           onClick={() =>
                             setActiveModalLesson({
                               ...activeModalLesson,
-                              lesson: { ...activeModalLesson.lesson, videoProvider: p },
+                              lesson: { ...activeModalLesson.lesson, videoProvider: p.id as VideoProvider },
                             })
                           }
-                          className={`py-2 text-[11px] font-bold rounded-xl uppercase transition-all border ${
-                            activeModalLesson.lesson.videoProvider === p
-                              ? "bg-purple-900/50 border-purple-500 text-purple-200"
-                              : "bg-slate-900 border-slate-800 text-slate-400"
+                          className={`py-2 text-[10px] sm:text-[11px] font-bold rounded-xl transition-all border ${
+                            activeModalLesson.lesson.videoProvider === p.id ||
+                            (p.id === "gdrive" && activeModalLesson.lesson.videoProvider === "googledrive")
+                              ? "bg-purple-900/50 border-purple-500 text-purple-200 shadow-md shadow-purple-900/20"
+                              : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200"
                           }`}
                         >
-                          {p}
+                          {p.label}
                         </button>
                       ))}
                     </div>
@@ -931,36 +971,106 @@ export default function CourseBuilderPage() {
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Video URL / Cloudinary Media Link
+                      {activeModalLesson.lesson.videoProvider === "youtube"
+                        ? "YouTube Video URL"
+                        : activeModalLesson.lesson.videoProvider === "gdrive" || activeModalLesson.lesson.videoProvider === "googledrive"
+                        ? "Google Drive Shareable Link"
+                        : activeModalLesson.lesson.videoProvider === "vimeo"
+                        ? "Vimeo Video URL"
+                        : activeModalLesson.lesson.videoProvider === "mp4"
+                        ? "Direct Video URL (.mp4)"
+                        : "Video URL / Cloudinary Link"}
                     </label>
                     <div className="flex flex-col sm:flex-row items-center gap-2">
                       <input
                         type="text"
-                        placeholder="e.g. https://res.cloudinary.com/dxkmkskvy/video/upload/sample.mp4"
+                        placeholder={
+                          activeModalLesson.lesson.videoProvider === "youtube"
+                            ? "e.g. https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+                            : activeModalLesson.lesson.videoProvider === "gdrive" || activeModalLesson.lesson.videoProvider === "googledrive"
+                            ? "e.g. https://drive.google.com/file/d/1ABC123xyz.../view?usp=sharing"
+                            : activeModalLesson.lesson.videoProvider === "vimeo"
+                            ? "e.g. https://vimeo.com/148751763"
+                            : activeModalLesson.lesson.videoProvider === "mp4"
+                            ? "e.g. https://example.com/video.mp4"
+                            : "e.g. https://res.cloudinary.com/dxkmkskvy/video/upload/sample.mp4"
+                        }
                         value={activeModalLesson.lesson.contentUrl || ""}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          let detectedProvider = activeModalLesson.lesson.videoProvider;
+                          if (val.includes("drive.google.com")) {
+                            detectedProvider = "gdrive";
+                          } else if (val.includes("youtube.com") || val.includes("youtu.be")) {
+                            detectedProvider = "youtube";
+                          } else if (val.includes("vimeo.com")) {
+                            detectedProvider = "vimeo";
+                          }
                           setActiveModalLesson({
                             ...activeModalLesson,
-                            lesson: { ...activeModalLesson.lesson, contentUrl: e.target.value },
-                          })
-                        }
+                            lesson: {
+                              ...activeModalLesson.lesson,
+                              contentUrl: val,
+                              videoProvider: detectedProvider,
+                            },
+                          });
+                        }}
                         className="w-full sm:flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
                       />
-                      <label
-                        htmlFor="lesson-video-file-input"
-                        className="w-full sm:w-auto px-4 py-2 rounded-xl bg-purple-900/40 text-purple-300 border border-purple-500/30 text-xs font-bold hover:bg-purple-900/60 cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5"
-                      >
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>Upload Video File</span>
-                      </label>
-                      <input
-                        id="lesson-video-file-input"
-                        type="file"
-                        accept="video/*"
-                        onChange={handleLessonVideoFileUpload}
-                        className="hidden"
-                      />
+                      {activeModalLesson.lesson.videoProvider !== "youtube" && activeModalLesson.lesson.videoProvider !== "gdrive" && (
+                        <>
+                          <label
+                            htmlFor="lesson-video-file-input"
+                            className={`w-full sm:w-auto px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap flex items-center justify-center gap-1.5 transition-all ${
+                              isUploadingVideo
+                                ? "bg-purple-900/20 text-purple-400 border border-purple-500/20 cursor-not-allowed opacity-70"
+                                : "bg-purple-900/40 text-purple-300 border border-purple-500/30 hover:bg-purple-900/60 cursor-pointer"
+                            }`}
+                          >
+                            {isUploadingVideo ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-400" />
+                                <span>Uploading...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Upload className="w-3.5 h-3.5" />
+                                <span>Upload Video File</span>
+                              </>
+                            )}
+                          </label>
+                          <input
+                            id="lesson-video-file-input"
+                            type="file"
+                            accept="video/*"
+                            disabled={isUploadingVideo}
+                            onChange={handleLessonVideoFileUpload}
+                            className="hidden"
+                          />
+                        </>
+                      )}
                     </div>
+                    
+                    {(activeModalLesson.lesson.videoProvider === "gdrive" || activeModalLesson.lesson.videoProvider === "googledrive") && (
+                      <p className="text-[11px] text-amber-300/90 bg-amber-950/30 border border-amber-500/20 rounded-lg p-2 mt-2 leading-relaxed">
+                        💡 <strong>Google Drive Tip:</strong> Ensure your Drive video access is set to <u>"Anyone with the link can view"</u> so students can play it directly in the app.
+                      </p>
+                    )}
+
+                    {/* Live Video Preview Box in Modal */}
+                    {activeModalLesson.lesson.contentUrl && (
+                      <div className="mt-4 border-t border-slate-800/80 pt-3">
+                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                          🎬 Live Player Test Preview:
+                        </label>
+                        <UniversalVideoPlayer
+                          url={activeModalLesson.lesson.contentUrl}
+                          provider={activeModalLesson.lesson.videoProvider}
+                          title={activeModalLesson.lesson.title || "Lesson Video Preview"}
+                          className="rounded-xl overflow-hidden border border-slate-800 shadow-xl"
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <div>

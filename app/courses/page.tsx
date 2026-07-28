@@ -1,31 +1,64 @@
 "use client";
 
-import React, { useState } from "react";
-import { Search, Filter, SlidersHorizontal, BookOpen, Star } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Search, BookOpen, Loader2 } from "lucide-react";
 import { CourseCard } from "@/components/CourseCard";
-import { MOCK_COURSES, CourseType } from "@/lib/api";
+import { API_BASE_URL, CourseType } from "@/lib/api";
 
 export default function CatalogPage() {
+  const [courses, setCourses] = useState<CourseType[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [selectedLevel, setSelectedLevel] = useState("All");
-  const [priceFilter, setPriceFilter] = useState("All");
 
   const categories = ["All", "Programming", "Design", "Marketing", "Business", "AI", "Data Science"];
-  const levels = ["All", "Beginner", "Intermediate", "Advanced"];
+  const levels = ["All", "Beginner", "Intermediate", "Advanced", "All Levels"];
 
-  const filteredCourses = MOCK_COURSES.filter((c) => {
-    const matchesSearch =
-      c.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.description.toLowerCase().includes(searchQuery.toLowerCase());
+  useEffect(() => {
+    const fetchCourses = async () => {
+      setIsLoading(true);
+      try {
+        const res = await fetch(`${API_BASE_URL}/courses`);
+        const data = await res.json();
+        const serverCourses: CourseType[] = data.success && Array.isArray(data.courses) ? data.courses : [];
+
+        // Combine with localStorage created courses if any
+        const localCreated: CourseType[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
+        const serverIds = new Set(serverCourses.map((c) => String(c._id)));
+        const combined = [
+          ...serverCourses,
+          ...localCreated.filter((c) => !serverIds.has(String(c._id))),
+        ];
+
+        setCourses(combined);
+      } catch (err) {
+        console.warn("Backend course fetch fallback:", err);
+        const localCreated: CourseType[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
+        setCourses(localCreated);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchCourses();
+  }, []);
+
+  const filteredCourses = courses.filter((c) => {
+    const titleMatch = c.title ? c.title.toLowerCase().includes(searchQuery.toLowerCase()) : false;
+    const descMatch = c.description ? c.description.toLowerCase().includes(searchQuery.toLowerCase()) : false;
+    const matchesSearch = titleMatch || descMatch;
     const matchesCategory = selectedCategory === "All" || c.category === selectedCategory;
     const matchesLevel = selectedLevel === "All" || c.level === selectedLevel;
-    const matchesPrice =
-      priceFilter === "All" ||
-      (priceFilter === "Free" && c.price === 0) ||
-      (priceFilter === "Paid" && c.price > 0);
 
-    return matchesSearch && matchesCategory && matchesLevel && matchesPrice;
+    // ONLY show courses that have been approved & published by Admin
+    const isApproved =
+      c.status === "published" ||
+      c.status === "Published" ||
+      c.status === "approved" ||
+      c.status === "Approved";
+
+    return matchesSearch && matchesCategory && matchesLevel && isApproved;
   });
 
   return (
@@ -33,7 +66,7 @@ export default function CatalogPage() {
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-black text-white">Course Catalog</h1>
-        <p className="text-slate-400 text-sm mt-1">Explore video courses taught by industry leading instructors.</p>
+        <p className="text-slate-400 text-sm mt-1">Explore real video courses stored in database.</p>
       </div>
 
       {/* Filter & Search Bar */}
@@ -78,8 +111,13 @@ export default function CatalogPage() {
         </div>
       </div>
 
-      {/* Course Grid */}
-      {filteredCourses.length > 0 ? (
+      {/* Loading State */}
+      {isLoading ? (
+        <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
+          <p className="text-xs font-semibold">Loading courses from EduCore database...</p>
+        </div>
+      ) : filteredCourses.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {filteredCourses.map((course) => (
             <CourseCard key={course._id} course={course} />
@@ -89,7 +127,7 @@ export default function CatalogPage() {
         <div className="glass-panel p-12 rounded-3xl text-center border border-slate-800">
           <BookOpen className="w-12 h-12 text-slate-600 mx-auto mb-3" />
           <h3 className="text-lg font-bold text-white mb-1">No Courses Found</h3>
-          <p className="text-xs text-slate-400">Try adjusting your search criteria or resetting filters.</p>
+          <p className="text-xs text-slate-400">Try adjusting your search criteria or creating a new course in Teacher Studio.</p>
         </div>
       )}
     </div>

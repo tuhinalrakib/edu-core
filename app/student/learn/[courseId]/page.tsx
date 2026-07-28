@@ -28,6 +28,7 @@ import { MOCK_COURSES } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { AIChatbotDrawer } from "@/components/ai/AIChatbotDrawer";
 import { DiscussionForum } from "@/components/forum/DiscussionForum";
+import { UniversalVideoPlayer } from "@/components/video/UniversalVideoPlayer";
 import confetti from "canvas-confetti";
 
 export default function UdemyLearningPlayer() {
@@ -114,21 +115,12 @@ export default function UdemyLearningPlayer() {
         {/* Left Video Player & Tab Area */}
         <div className="flex-1 flex flex-col overflow-y-auto">
           {/* Main Video Viewport */}
-          <div className="relative aspect-video w-full bg-slate-950 border-b border-slate-800/80 flex items-center justify-center">
-            {activeLesson?.videoProvider === "youtube" ? (
-              <iframe
-                src="https://www.youtube-nocookie.com/embed/wm5gMKCOB4U?autoplay=0&modestbranding=1"
-                title={activeLesson?.title}
-                className="w-full h-full border-0"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              />
-            ) : (
-              <div className="text-center p-8">
-                <Play className="w-16 h-16 text-purple-500 mx-auto mb-3" />
-                <p className="text-sm font-bold text-white">{activeLesson?.title}</p>
-              </div>
-            )}
+          <div className="relative aspect-video w-full bg-slate-950 border-b border-slate-800/80">
+            <UniversalVideoPlayer
+              url={activeLesson?.contentUrl}
+              provider={activeLesson?.videoProvider}
+              title={activeLesson?.title}
+            />
           </div>
 
           {/* Player Control Bar */}
