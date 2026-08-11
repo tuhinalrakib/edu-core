@@ -26,7 +26,7 @@ import {
   Check,
 } from "lucide-react";
 import { StatCard } from "@/components/StatCard";
-import { MOCK_COURSES } from "@/lib/api";
+import { API_BASE_URL } from "@/lib/api";
 import { TeacherCharts } from "@/components/charts/TeacherCharts";
 import Swal from "sweetalert2";
 
@@ -35,21 +35,28 @@ export default function TeacherDashboard() {
     "overview" | "courses" | "assignments" | "quizzes"
   >("overview");
 
-  // Courses State initialized with mock or local storage
-  const [courses, setCourses] = useState(
-    MOCK_COURSES.map((c, idx) => ({
-      ...c,
-      status: idx === 0 ? "Published" : idx === 1 ? "Draft" : "Published",
-      rating: 4.8,
-    }))
-  );
+  // Courses State fetched dynamically from DB
+  const [courses, setCourses] = useState<any[]>([]);
 
-  // Hydrate created courses from LocalStorage
+  // Hydrate courses from MongoDB Database API
   useEffect(() => {
-    const stored = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
-    if (stored.length > 0) {
-      setCourses(stored);
-    }
+    const fetchTeacherCourses = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/courses`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.courses)) {
+          setCourses(data.courses);
+          return;
+        }
+      } catch (err) {
+        console.warn("Backend fetch teacher courses fallback:", err);
+      }
+
+      const stored = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
+      if (stored.length > 0) setCourses(stored);
+    };
+
+    fetchTeacherCourses();
   }, []);
 
   // Student Assignment Submissions State
@@ -159,11 +166,11 @@ export default function TeacherDashboard() {
       prev.map((s) =>
         s.id === selectedSub.id
           ? {
-              ...s,
-              status: "Graded",
-              marks: Number(givenMarks),
-              feedback: givenFeedback,
-            }
+            ...s,
+            status: "Graded",
+            marks: Number(givenMarks),
+            feedback: givenFeedback,
+          }
           : s
       )
     );
@@ -238,11 +245,10 @@ export default function TeacherDashboard() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all border ${
-                isActive
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all border ${isActive
                   ? "bg-purple-900/50 border-purple-500 text-purple-200 shadow-lg shadow-purple-900/30"
                   : "bg-slate-900/60 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800/80"
-              }`}
+                }`}
             >
               <Icon className="w-4 h-4" />
               <span>{tab.label}</span>
@@ -312,48 +318,49 @@ export default function TeacherDashboard() {
                     <td className="p-3 font-bold text-amber-400">{course.rating} ★</td>
                     <td className="p-3">
                       <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${
-                          course.status === "Published"
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${course.status === "Published"
                             ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
                             : course.status === "Draft"
-                            ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
-                            : "bg-slate-800 text-slate-400 border-slate-700"
-                        }`}
+                              ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                              : "bg-slate-800 text-slate-400 border-slate-700"
+                          }`}
                       >
                         {course.status}
                       </span>
                     </td>
-                    <td className="p-3 text-right space-x-2">
-                      <select
-                        value={course.status}
-                        onChange={(e) => handleStatusChange(course._id, e.target.value)}
-                        className="bg-slate-900 border border-slate-800 text-slate-300 rounded px-2 py-1 text-[11px] font-semibold"
-                      >
-                        <option value="Published">Publish</option>
-                        <option value="Draft">Draft</option>
-                        <option value="Archived">Archive</option>
-                      </select>
-                      <Link
-                        href={`/student/learn/${course.slug || course._id}`}
-                        className="p-1.5 text-emerald-400 hover:text-emerald-300 inline-block"
-                        title="Preview Course Player"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </Link>
-                      <Link
-                        href="/teacher/courses/create"
-                        className="p-1.5 text-purple-400 hover:text-purple-300 inline-block"
-                        title="Edit Course"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </Link>
-                      <button
-                        onClick={() => handleDeleteCourse(course._id)}
-                        className="p-1.5 text-rose-400 hover:text-rose-300"
-                        title="Delete Course"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                    <td className="p-3">
+                      <div className="flex items-center justify-end gap-2">
+                        <select
+                          value={course.status}
+                          onChange={(e) => handleStatusChange(course._id, e.target.value)}
+                          className="bg-slate-900 border border-slate-800 text-slate-300 rounded-xl px-3 py-1.5 text-[11px] font-semibold focus:outline-none focus:border-purple-500 cursor-pointer shadow-sm"
+                        >
+                          <option value="Published">Publish</option>
+                          <option value="Draft">Draft</option>
+                          <option value="Archived">Archive</option>
+                        </select>
+                        <Link
+                          href={`/student/learn/${course.slug || course._id}`}
+                          className="w-8 h-8 rounded-xl bg-slate-900 border border-slate-800 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 hover:border-emerald-500/30 transition-all flex items-center justify-center shadow-sm"
+                          title="Preview Course Player"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Link>
+                        <Link
+                          href={`/teacher/courses/create?id=${course._id}`}
+                          className="w-8 h-8 rounded-xl bg-slate-900 border border-slate-800 text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 hover:border-purple-500/30 transition-all flex items-center justify-center shadow-sm"
+                          title="Edit Course"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </Link>
+                        <button
+                          onClick={() => handleDeleteCourse(course._id)}
+                          className="w-8 h-8 rounded-xl bg-slate-900 border border-slate-800 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 hover:border-rose-500/30 transition-all flex items-center justify-center shadow-sm"
+                          title="Delete Course"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -418,11 +425,10 @@ export default function TeacherDashboard() {
                     <td className="p-3 text-slate-400">{sub.submittedDate}</td>
                     <td className="p-3">
                       <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${
-                          sub.status === "Graded"
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${sub.status === "Graded"
                             ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
                             : "bg-amber-500/20 text-amber-300 border-amber-500/30"
-                        }`}
+                          }`}
                       >
                         {sub.status}
                       </span>

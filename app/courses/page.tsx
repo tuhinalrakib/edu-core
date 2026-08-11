@@ -12,7 +12,7 @@ export default function CatalogPage() {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [selectedLevel, setSelectedLevel] = useState("All");
 
-  const categories = ["All", "Programming", "Design", "Marketing", "Business", "AI", "Data Science"];
+  const categories = ["All", "Web Development", "Programming", "UI/UX Design", "Design", "Marketing", "Business & SaaS", "Business", "AI", "Data Science"];
   const levels = ["All", "Beginner", "Intermediate", "Advanced", "All Levels"];
 
   useEffect(() => {
@@ -21,17 +21,10 @@ export default function CatalogPage() {
       try {
         const res = await fetch(`${API_BASE_URL}/courses`);
         const data = await res.json();
-        const serverCourses: CourseType[] = data.success && Array.isArray(data.courses) ? data.courses : [];
-
-        // Combine with localStorage created courses if any
-        const localCreated: CourseType[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
-        const serverIds = new Set(serverCourses.map((c) => String(c._id)));
-        const combined = [
-          ...serverCourses,
-          ...localCreated.filter((c) => !serverIds.has(String(c._id))),
-        ];
-
-        setCourses(combined);
+        if (data.success && Array.isArray(data.courses)) {
+          setCourses(data.courses);
+          return;
+        }
       } catch (err) {
         console.warn("Backend course fetch fallback:", err);
         const localCreated: CourseType[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
@@ -51,14 +44,10 @@ export default function CatalogPage() {
     const matchesCategory = selectedCategory === "All" || c.category === selectedCategory;
     const matchesLevel = selectedLevel === "All" || c.level === selectedLevel;
 
-    // ONLY show courses that have been approved & published by Admin
-    const isApproved =
-      c.status === "published" ||
-      c.status === "Published" ||
-      c.status === "approved" ||
-      c.status === "Approved";
+    // Show all active courses except archived ones
+    const isNotArchived = c.status !== "archived" && c.status !== "Archived";
 
-    return matchesSearch && matchesCategory && matchesLevel && isApproved;
+    return matchesSearch && matchesCategory && matchesLevel && isNotArchived;
   });
 
   return (

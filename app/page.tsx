@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Sparkles,
@@ -24,7 +24,7 @@ import {
   Lock,
 } from "lucide-react";
 import { CourseCard } from "@/components/CourseCard";
-import { MOCK_COURSES } from "@/lib/api";
+import { API_BASE_URL, MOCK_COURSES, CourseType } from "@/lib/api";
 
 const CATEGORIES = [
   { name: "Programming", icon: Code, count: "140+ Courses", color: "from-purple-500 to-indigo-500" },
@@ -38,6 +38,21 @@ const CATEGORIES = [
 
 export default function Home() {
   const [activeCategory, setActiveCategory] = useState("All");
+  const [featuredCourses, setFeaturedCourses] = useState<CourseType[]>(MOCK_COURSES);
+
+  useEffect(() => {
+    const fetchFeatured = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/courses`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.courses) && data.courses.length > 0) {
+          setFeaturedCourses(data.courses);
+        }
+      } catch (err) {}
+    };
+
+    fetchFeatured();
+  }, []);
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -149,7 +164,7 @@ export default function Home() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {MOCK_COURSES.map((course) => (
+            {featuredCourses.map((course) => (
               <CourseCard key={course._id} course={course} />
             ))}
           </div>

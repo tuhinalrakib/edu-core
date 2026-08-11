@@ -332,53 +332,8 @@ export default function AdminDashboard() {
     },
   ]);
 
-  // 3. Courses Management State
-  const [adminCourses, setAdminCourses] = useState([
-    {
-      id: "c1",
-      title: "Next.js 15 & React 19 Full-Stack SaaS Masterclass",
-      teacher: "Dr. Sarah Jenkins",
-      category: "Web Development",
-      price: 99.99,
-      status: "published", // published, pending, rejected
-      isFeatured: true,
-      students: 4520,
-      thumbnail: "https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=400",
-    },
-    {
-      id: "c2",
-      title: "Advanced Cloud Architecture & Kubernetes",
-      teacher: "Alex Mercer",
-      category: "DevOps",
-      price: 89.99,
-      status: "pending",
-      isFeatured: false,
-      students: 0,
-      thumbnail: "https://images.unsplash.com/photo-1667372393119-3d4c48d07fc9?w=400",
-    },
-    {
-      id: "c3",
-      title: "UI/UX Design Systems & Micro-Interactions",
-      teacher: "Elena Rostova",
-      category: "Design",
-      price: 69.99,
-      status: "published",
-      isFeatured: true,
-      students: 2180,
-      thumbnail: "https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?w=400",
-    },
-    {
-      id: "c4",
-      title: "Python AI & LLM Engineering Guide",
-      teacher: "Dr. Sarah Jenkins",
-      category: "Data Science",
-      price: 119.99,
-      status: "pending",
-      isFeatured: false,
-      students: 0,
-      thumbnail: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=400",
-    },
-  ]);
+  // 3. Courses Management State (Fetched dynamically from DB)
+  const [adminCourses, setAdminCourses] = useState<any[]>([]);
 
   // 4. Categories & Tags Dynamic State
   const [categories, setCategories] = useState<any[]>([
@@ -429,7 +384,7 @@ export default function AdminDashboard() {
     fetchCategoriesAndTags();
   }, []);
 
-  // Fetch dynamic courses created by teachers
+  // Fetch dynamic courses created by teachers from MongoDB Database
   useEffect(() => {
     const fetchAdminCourses = async () => {
       try {
@@ -439,7 +394,7 @@ export default function AdminDashboard() {
           const apiCourses = data.courses.map((c: any) => ({
             id: c._id || c.id,
             title: c.title,
-            teacher: typeof c.teacher === "object" ? c.teacher?.name : c.teacher || "Instructor",
+            teacher: typeof c.teacher === "object" ? (c.teacher?.name || c.teacher?.email) : c.teacher || "Instructor",
             teacherEmail: typeof c.teacher === "object" ? c.teacher?.email : "",
             category: c.category,
             price: c.price,
@@ -449,25 +404,7 @@ export default function AdminDashboard() {
             thumbnail: c.thumbnail || "https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=400",
           }));
 
-          const localCreated: any[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
-          const merged = [...apiCourses];
-          localCreated.forEach((lc) => {
-            if (!merged.some((m) => m.id === lc._id || m.id === lc.id || m.title === lc.title)) {
-              merged.push({
-                id: lc._id || lc.id || "lc-" + Date.now(),
-                title: lc.title,
-                teacher: typeof lc.teacher === "object" ? lc.teacher?.name : lc.teacher || "Instructor",
-                teacherEmail: typeof lc.teacher === "object" ? lc.teacher?.email : "",
-                category: lc.category,
-                price: lc.price,
-                status: lc.status ? String(lc.status).toLowerCase() : "pending",
-                isFeatured: lc.isFeatured || false,
-                students: lc.totalStudents || 0,
-                thumbnail: lc.thumbnail,
-              });
-            }
-          });
-          if (merged.length > 0) setAdminCourses(merged);
+          setAdminCourses(apiCourses);
           return;
         }
       } catch (err) {
@@ -475,29 +412,19 @@ export default function AdminDashboard() {
       }
 
       const localCreated: any[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
-      if (localCreated.length > 0) {
-        const formattedLocal = localCreated.map((lc) => ({
-          id: lc._id || lc.id || "lc-" + Date.now(),
-          title: lc.title,
-          teacher: typeof lc.teacher === "object" ? lc.teacher?.name : lc.teacher || "Instructor",
-          teacherEmail: typeof lc.teacher === "object" ? lc.teacher?.email : "",
-          category: lc.category,
-          price: lc.price,
-          status: lc.status ? String(lc.status).toLowerCase() : "pending",
-          isFeatured: lc.isFeatured || false,
-          students: lc.totalStudents || 0,
-          thumbnail: lc.thumbnail,
-        }));
-        setAdminCourses((prev) => {
-          const merged = [...prev];
-          formattedLocal.forEach((fl) => {
-            if (!merged.some((m) => m.id === fl.id || m.title === fl.title)) {
-              merged.unshift(fl);
-            }
-          });
-          return merged;
-        });
-      }
+      const formattedLocal = localCreated.map((lc) => ({
+        id: lc._id || lc.id || "lc-" + Date.now(),
+        title: lc.title,
+        teacher: typeof lc.teacher === "object" ? (lc.teacher?.name || lc.teacher?.email) : lc.teacher || "Instructor",
+        teacherEmail: typeof lc.teacher === "object" ? lc.teacher?.email : "",
+        category: lc.category,
+        price: lc.price,
+        status: lc.status ? String(lc.status).toLowerCase() : "pending",
+        isFeatured: lc.isFeatured || false,
+        students: lc.totalStudents || 0,
+        thumbnail: lc.thumbnail,
+      }));
+      setAdminCourses(formattedLocal);
     };
 
     fetchAdminCourses();
@@ -1513,14 +1440,25 @@ export default function AdminDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {adminCourses
-                    .filter((c) => c.title.toLowerCase().includes(courseSearch.toLowerCase()))
-                    .map((c) => (
-                      <tr key={c.id} className="hover:bg-slate-900/50">
-                        <td className="p-3 font-bold text-white flex items-center gap-3">
-                          <img src={c.thumbnail} className="w-12 h-8 rounded object-cover" />
-                          <span className="truncate max-w-xs">{c.title}</span>
-                        </td>
+                  {adminCourses.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-8 text-center text-slate-500 text-xs font-medium">
+                        No courses found in database. Courses created by instructors will appear here for admin approval.
+                      </td>
+                    </tr>
+                  ) : (
+                    adminCourses
+                      .filter((c) => (c.title || "").toLowerCase().includes(courseSearch.toLowerCase()))
+                      .map((c) => (
+                        <tr key={c.id} className="hover:bg-slate-900/50">
+                          <td className="p-3 font-bold text-white flex items-center gap-3">
+                            <img
+                              src={c.thumbnail && c.thumbnail.startsWith("/") ? `${API_BASE_URL.replace("/api", "")}${c.thumbnail}` : c.thumbnail || "https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=400"}
+                              className="w-12 h-8 rounded object-cover border border-purple-500/30"
+                              alt={c.title}
+                            />
+                            <span className="truncate max-w-xs">{c.title}</span>
+                          </td>
                         <td className="p-3">{c.teacher}</td>
                         <td className="p-3">{c.category}</td>
                         <td className="p-3 font-bold text-emerald-400">${c.price}</td>
@@ -1589,7 +1527,8 @@ export default function AdminDashboard() {
                           </button>
                         </td>
                       </tr>
-                    ))}
+                    )))
+                  }
                 </tbody>
               </table>
             </div>

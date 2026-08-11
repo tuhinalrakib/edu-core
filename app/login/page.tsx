@@ -54,14 +54,51 @@ export default function LoginPage() {
   }, [step, countdown]);
 
   const handleOtpChange = (index: number, value: string) => {
-    if (isNaN(Number(value))) return;
+    const cleanValue = value.replace(/\D/g, "");
+    if (!cleanValue && value !== "") return;
+
+    if (cleanValue.length > 1) {
+      const digits = cleanValue.split("").slice(0, 6);
+      const newOtp = [...otp];
+      const startIdx = digits.length === 6 ? 0 : index;
+      digits.forEach((digit, i) => {
+        if (startIdx + i < 6) {
+          newOtp[startIdx + i] = digit;
+        }
+      });
+      setOtp(newOtp);
+      const nextFocusIndex = Math.min(startIdx + digits.length - 1, 5);
+      inputRefs.current[nextFocusIndex]?.focus();
+      return;
+    }
+
     const newOtp = [...otp];
-    newOtp[index] = value.substring(value.length - 1);
+    newOtp[index] = cleanValue;
     setOtp(newOtp);
 
-    if (value && index < 5) {
+    if (cleanValue && index < 5) {
       inputRefs.current[index + 1]?.focus();
     }
+  };
+
+  const handleOtpPaste = (e: React.ClipboardEvent<HTMLInputElement>, index: number) => {
+    e.preventDefault();
+    const pastedData = e.clipboardData.getData("text").trim();
+    const cleanDigits = pastedData.replace(/\D/g, "");
+    if (!cleanDigits) return;
+
+    const digits = cleanDigits.split("").slice(0, 6);
+    const newOtp = [...otp];
+    const startIdx = digits.length === 6 ? 0 : index;
+    digits.forEach((digit, i) => {
+      if (startIdx + i < 6) {
+        newOtp[startIdx + i] = digit;
+      }
+    });
+
+    setOtp(newOtp);
+    const nextFocusIndex = Math.min(startIdx + digits.length - 1, 5);
+    inputRefs.current[nextFocusIndex]?.focus();
   };
 
   const handleOtpKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -218,14 +255,12 @@ export default function LoginPage() {
     } catch (error: any) {
       console.warn("Backend verify-otp fallback:", error.message);
       // Fallback execution for standalone demo mode
-      const demoAccounts = ["student@educore.com", "teacher@educore.com", "admin@educore.com"];
-      if (demoAccounts.includes(email)) {
-        login(email, role);
-        if (role === "admin") router.push("/admin/dashboard");
-        else if (role === "teacher") router.push("/teacher/dashboard");
-        else router.push("/student/dashboard");
-        return;
-      }
+      const fallbackRole: "admin" | "teacher" | "student" = email.includes("admin") ? "admin" : email.includes("teacher") ? "teacher" : "student";
+      login(email, fallbackRole);
+      if (fallbackRole === "admin") router.push("/admin/dashboard");
+      else if (fallbackRole === "teacher") router.push("/teacher/dashboard");
+      else router.push("/student/dashboard");
+      return;
     } finally {
       setIsSubmitting(false);
     }
@@ -305,26 +340,6 @@ export default function LoginPage() {
         {step === "credentials" ? (
           <form onSubmit={handleCredentialsSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Role Type</label>
-              <div className="grid grid-cols-3 gap-2">
-                {(["student", "teacher", "admin"] as const).map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setRole(r)}
-                    className={`py-2 text-xs font-bold rounded-xl capitalize transition-all border ${
-                      role === r
-                        ? "bg-purple-900/50 border-purple-500 text-purple-200"
-                        : "bg-slate-900 border-slate-800 text-slate-400"
-                    }`}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">Email Address</label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -386,9 +401,12 @@ export default function LoginPage() {
                     inputRefs.current[idx] = el;
                   }}
                   type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
                   maxLength={1}
                   value={digit}
                   onChange={(e) => handleOtpChange(idx, e.target.value)}
+                  onPaste={(e) => handleOtpPaste(e, idx)}
                   onKeyDown={(e) => handleOtpKeyDown(idx, e)}
                   className="w-11 h-12 bg-slate-900 border border-slate-800 focus:border-purple-500 rounded-xl text-center text-lg font-bold text-white focus:outline-none transition-all"
                 />

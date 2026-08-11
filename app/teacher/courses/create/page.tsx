@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Plus,
   Trash2,
@@ -42,17 +42,19 @@ type QuestionType = "mcq" | "true_false" | "fill_blank" | "coding";
 
 export default function CourseBuilderPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editCourseId = searchParams.get("id");
   const { user } = useAuth();
 
-  const [title, setTitle] = useState("React 19 & Next.js 15 Full-Stack SaaS Masterclass");
+  const [title, setTitle] = useState(editCourseId ? "" : "React 19 & Next.js 15 Full-Stack SaaS Masterclass");
   const [category, setCategory] = useState("Web Development");
   const [level, setLevel] = useState("All Levels");
   const [price, setPrice] = useState("49.99");
   const [description, setDescription] = useState(
-    "Learn to build full-stack web applications with React 19, Next.js 15 App Router, TypeScript, and Express."
+    editCourseId ? "" : "Learn to build full-stack web applications with React 19, Next.js 15 App Router, TypeScript, and Express."
   );
   const [thumbnail, setThumbnail] = useState("");
-  const [courseStatus, setCourseStatus] = useState<string>("pending");
+  const [courseStatus, setCourseStatus] = useState<string>("Published");
 
   const [categoriesList, setCategoriesList] = useState<string[]>([
     "Web Development",
@@ -62,6 +64,8 @@ export default function CourseBuilderPage() {
     "Programming",
     "Business & SaaS",
   ]);
+
+  const [allTeacherCourses, setAllTeacherCourses] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -80,8 +84,77 @@ export default function CourseBuilderPage() {
       }
     };
 
+    const fetchAllCourses = async () => {
+      let apiCourses: any[] = [];
+      try {
+        const res = await fetch(`${API_BASE_URL}/courses`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.courses)) {
+          apiCourses = data.courses;
+        }
+      } catch (err) {}
+
+      const localCourses = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
+      const merged = [...apiCourses];
+      localCourses.forEach((lc: any) => {
+        if (!merged.some((m) => String(m._id) === String(lc._id))) {
+          merged.push(lc);
+        }
+      });
+      setAllTeacherCourses(merged);
+    };
+
     fetchCategories();
+    fetchAllCourses();
   }, []);
+
+  // Fetch existing course details if editing (id present in searchParams)
+  useEffect(() => {
+    if (!editCourseId) return;
+
+    const loadExistingCourse = async () => {
+      let targetCourse: any = null;
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/courses/${editCourseId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.course) {
+            targetCourse = data.course;
+          }
+        }
+      } catch (err: any) {
+        console.warn("Backend fetch edit course fallback:", err.message);
+      }
+
+      if (!targetCourse) {
+        try {
+          const localCreated = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
+          targetCourse = localCreated.find((c: any) => String(c._id) === String(editCourseId));
+        } catch (e) {}
+      }
+
+      if (targetCourse) {
+        if (targetCourse.title) setTitle(targetCourse.title);
+        if (targetCourse.category) setCategory(targetCourse.category);
+        if (targetCourse.level) setLevel(targetCourse.level);
+        if (targetCourse.price !== undefined) setPrice(String(targetCourse.price));
+        if (targetCourse.description) setDescription(targetCourse.description);
+        if (targetCourse.thumbnail) {
+          const fullUrl = targetCourse.thumbnail.startsWith("/")
+            ? `${API_BASE_URL.replace("/api", "")}${targetCourse.thumbnail}`
+            : targetCourse.thumbnail;
+          setThumbnail(fullUrl);
+        }
+        if (targetCourse.status) setCourseStatus(targetCourse.status);
+        if (Array.isArray(targetCourse.sections) && targetCourse.sections.length > 0) {
+          setSections(targetCourse.sections);
+        }
+      }
+    };
+
+    loadExistingCourse();
+  }, [editCourseId]);
 
   // Sections & Lessons Curriculum Tree State
   const [sections, setSections] = useState([
@@ -378,11 +451,14 @@ export default function CourseBuilderPage() {
       const data = await res.json();
 
       if (res.ok && data.success && data.url) {
-        setThumbnail(data.url);
+        const fullUrl = data.url.startsWith("/")
+          ? `${API_BASE_URL.replace("/api", "")}${data.url}`
+          : data.url;
+        setThumbnail(fullUrl);
         Swal.fire({
           icon: "success",
           title: "Thumbnail Uploaded! 🖼️",
-          text: "Course thumbnail uploaded to Cloudinary successfully.",
+          text: "Course thumbnail uploaded successfully.",
           background: "#0f172a",
           color: "#ffffff",
           confirmButtonColor: "#7c3aed",
@@ -423,7 +499,7 @@ export default function CourseBuilderPage() {
     }
 
     const newCourseObj = {
-      _id: `course-${Date.now()}`,
+      ...(editCourseId ? { _id: editCourseId } : { _id: `course-${Date.now()}` }),
       title,
       category,
       level,
@@ -445,14 +521,24 @@ export default function CourseBuilderPage() {
 
     // 1. Save to LocalStorage list for immediate Teacher Dashboard sync
     const existingCourses = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
-    const updatedCoursesList = [newCourseObj, ...existingCourses];
+    let updatedCoursesList: any[];
+    if (editCourseId) {
+      updatedCoursesList = existingCourses.map((c: any) =>
+        String(c._id) === String(editCourseId) ? { ...c, ...newCourseObj } : c
+      );
+    } else {
+      updatedCoursesList = [newCourseObj, ...existingCourses];
+    }
     localStorage.setItem("educore_created_courses", JSON.stringify(updatedCoursesList));
 
-    // 2. Attempt POST to backend /api/courses
+    // 2. Attempt POST/PUT to backend /api/courses
     setIsSavingCourse(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/courses`, {
-        method: "POST",
+      const endpoint = editCourseId ? `${API_BASE_URL}/courses/${editCourseId}` : `${API_BASE_URL}/courses`;
+      const method = editCourseId ? "PUT" : "POST";
+
+      const res = await fetch(endpoint, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newCourseObj),
       });
@@ -465,8 +551,8 @@ export default function CourseBuilderPage() {
 
       Swal.fire({
         icon: "success",
-        title: "Course Saved & Published! 🎉",
-        text: `Course "${title}" has been saved and added to your instructor dashboard with status: ${courseStatus}.`,
+        title: editCourseId ? "Course Updated! 🎉" : "Course Saved & Published! 🎉",
+        text: `Course "${title}" has been ${editCourseId ? "updated" : "saved"} successfully.`,
         background: "#0f172a",
         color: "#ffffff",
         confirmButtonColor: "#7c3aed",
@@ -506,12 +592,35 @@ export default function CourseBuilderPage() {
       {/* Top Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 glass-panel p-8 rounded-3xl border border-slate-800 bg-gradient-to-r from-slate-900 via-purple-950/40 to-slate-900">
         <div>
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/30">
-              Instructor Course Studio
+              {editCourseId ? "Editing Existing Course" : "Instructor Course Studio"}
             </span>
+            {allTeacherCourses.length > 0 && (
+              <select
+                value={editCourseId || ""}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val) {
+                    router.push(`/teacher/courses/create?id=${val}`);
+                  } else {
+                    router.push(`/teacher/courses/create`);
+                  }
+                }}
+                className="bg-slate-900 border border-slate-700 text-purple-200 text-xs font-bold rounded-xl px-3 py-1 focus:outline-none focus:border-purple-500 cursor-pointer shadow-sm"
+              >
+                <option value="">➕ Create New Course</option>
+                {allTeacherCourses.map((c, idx) => (
+                  <option key={c._id || c.id || `course-opt-${idx}`} value={c._id || c.id}>
+                    ✏️ Edit: {c.title}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
-          <h1 className="text-3xl font-black text-white">Full-Featured Course Builder</h1>
+          <h1 className="text-3xl font-black text-white">
+            {editCourseId ? "Edit Course Builder" : "Full-Featured Course Builder"}
+          </h1>
           <p className="text-xs text-slate-400 mt-1">
             Design sections, video lessons (Cloudinary/YouTube/Vimeo), downloadable resources, interactive quizzes, and assignments.
           </p>
@@ -523,7 +632,7 @@ export default function CourseBuilderPage() {
           className="px-6 py-3.5 rounded-xl text-xs font-bold text-white gradient-button flex items-center justify-center gap-2 shadow-xl shadow-purple-600/30 shrink-0"
         >
           <CheckCircle className="w-4 h-4" />
-          <span>Save & Publish Course</span>
+          <span>{editCourseId ? "Update Course Changes" : "Save & Publish Course"}</span>
         </button>
       </div>
 
@@ -608,15 +717,34 @@ export default function CourseBuilderPage() {
               </label>
               <div className="flex flex-col sm:flex-row items-center gap-4 bg-slate-950 p-4 rounded-2xl border border-slate-800">
                 {thumbnail ? (
-                  <img
-                    src={thumbnail}
-                    alt="Course Thumbnail"
-                    className="w-36 h-20 rounded-xl object-cover border border-purple-500/40 shrink-0 shadow-md"
-                  />
+                  <div className="relative group shrink-0">
+                    <img
+                      src={thumbnail.startsWith("/") ? `${API_BASE_URL.replace("/api", "")}${thumbnail}` : thumbnail}
+                      alt="Course Thumbnail"
+                      className="w-36 h-20 rounded-xl object-cover border border-purple-500/40 shrink-0 shadow-md"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setThumbnail("")}
+                      className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-rose-600 text-white flex items-center justify-center shadow hover:bg-rose-500 transition-colors"
+                      title="Remove Image"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
                 ) : (
                   <div className="w-36 h-20 rounded-xl bg-slate-900 border border-dashed border-slate-700 flex flex-col items-center justify-center text-slate-500 text-[10px] gap-1 shrink-0">
-                    <ImageIcon className="w-5 h-5 text-slate-500" />
-                    <span>No Image Added</span>
+                    {isUploadingThumbnail ? (
+                      <>
+                        <Loader2 className="w-5 h-5 text-purple-400 animate-spin" />
+                        <span className="text-purple-300 font-medium">Uploading...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ImageIcon className="w-5 h-5 text-slate-500" />
+                        <span>No Image Added</span>
+                      </>
+                    )}
                   </div>
                 )}
                 <div className="flex-1 w-full space-y-2">
@@ -626,14 +754,25 @@ export default function CourseBuilderPage() {
                       placeholder="Paste Image URL or upload image file below..."
                       value={thumbnail}
                       onChange={(e) => setThumbnail(e.target.value)}
-                      className="w-full sm:flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
+                      className="w-full sm:flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 font-mono text-[11px]"
                     />
                     <label
                       htmlFor="course-thumbnail-upload-input"
-                      className="w-full sm:w-auto px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5 shadow-md transition-colors"
+                      className={`w-full sm:w-auto px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5 shadow-md transition-colors ${
+                        isUploadingThumbnail ? "opacity-60 pointer-events-none" : ""
+                      }`}
                     >
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>Upload Image</span>
+                      {isUploadingThumbnail ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Uploading...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>Upload Image</span>
+                        </>
+                      )}
                     </label>
                     <input
                       id="course-thumbnail-upload-input"
@@ -690,7 +829,7 @@ export default function CourseBuilderPage() {
               const isOpen = openSectionIdx === sIdx;
               return (
                 <div
-                  key={section.id}
+                  key={section.id || section._id || `sec-${sIdx}`}
                   className="rounded-2xl bg-slate-950 border border-slate-800 overflow-hidden shadow-lg"
                 >
                   {/* Section Accordion Header */}
@@ -749,7 +888,7 @@ export default function CourseBuilderPage() {
                         <div className="space-y-2.5">
                           {section.lessons.map((lesson, lIdx) => (
                             <div
-                              key={lesson.id}
+                              key={lesson.id || lesson._id || `les-${sIdx}-${lIdx}`}
                               className="p-3.5 rounded-xl bg-slate-900 border border-slate-800/80 flex items-center justify-between gap-3 hover:border-purple-500/40 transition-colors"
                             >
                               <div className="flex items-center gap-3 overflow-hidden">
@@ -1154,7 +1293,7 @@ export default function CourseBuilderPage() {
                     </div>
 
                     {activeModalLesson.lesson.quiz?.questions?.map((q: any, qIdx: number) => (
-                      <div key={q.id || qIdx} className="p-3 rounded-xl bg-slate-900 border border-slate-800 space-y-2 text-xs">
+                      <div key={q.id || q._id || `q-${qIdx}`} className="p-3 rounded-xl bg-slate-900 border border-slate-800 space-y-2 text-xs">
                         <div className="flex justify-between items-center">
                           <span className="font-bold text-purple-300">Q{qIdx + 1}: {q.type.toUpperCase()}</span>
                           <button
