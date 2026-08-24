@@ -19,10 +19,13 @@ import {
   ChevronUp,
   Loader2,
   X,
+  HelpCircle,
 } from "lucide-react";
-import { API_BASE_URL, MOCK_COURSES, CourseType } from "@/lib/api";
+import { API_BASE_URL, CourseType } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { UniversalVideoPlayer } from "@/components/video/UniversalVideoPlayer";
+import { EduCoreLoader } from "@/components/EduCoreLoader";
+import Swal from "sweetalert2";
 
 export default function CourseDetailsPage() {
   const params = useParams();
@@ -37,19 +40,12 @@ export default function CourseDetailsPage() {
       setIsLoading(true);
       const targetId = params.courseId as string;
 
-      // 1. Try local storage created courses first
-      const localCreated: CourseType[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
-      const foundLocal = localCreated.find((c) => c.slug === targetId || String(c._id) === targetId);
-
-      if (foundLocal) {
-        setCourse(foundLocal);
-        setIsLoading(false);
-        return;
-      }
-
-      // 2. Try fetching from backend API
+      // 1. Try fetching from backend API first with fresh data
       try {
-        const res = await fetch(`${API_BASE_URL}/courses/${targetId}`);
+        const res = await fetch(`${API_BASE_URL}/courses/${targetId}?t=${Date.now()}`, {
+          cache: "no-store",
+          headers: { "Cache-Control": "no-cache" },
+        });
         const data = await res.json();
         if (data.success && data.course) {
           setCourse(data.course);
@@ -60,9 +56,18 @@ export default function CourseDetailsPage() {
         console.warn("Backend course fetch error:", e);
       }
 
-      // 3. Fallback to mock course
-      const foundMock = MOCK_COURSES.find((c) => c.slug === targetId || String(c._id) === targetId) || MOCK_COURSES[0];
-      setCourse(foundMock);
+      // 2. Fallback to local storage created courses if offline
+      try {
+        const localCreated: CourseType[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
+        const foundLocal = localCreated.find((c) => c.slug === targetId || String(c._id) === targetId);
+        if (foundLocal) {
+          setCourse(foundLocal);
+          setIsLoading(false);
+          return;
+        }
+      } catch (e) {}
+
+      setCourse(null);
       setIsLoading(false);
     };
 
@@ -77,38 +82,60 @@ export default function CourseDetailsPage() {
   const [appliedDiscount, setAppliedDiscount] = useState<number>(0);
   const [couponMsg, setCouponMsg] = useState("");
 
-  if (isLoading || !course) {
+  if (isLoading) {
     return (
-      <div className="min-h-[70vh] flex flex-col items-center justify-center text-slate-400 gap-3">
-        <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
-        <p className="text-xs font-semibold">Loading course details...</p>
+      <div className="min-h-[70vh] flex flex-col items-center justify-center">
+        <EduCoreLoader message="Loading course curriculum & video preview" />
       </div>
     );
   }
 
-  const teacherName =
-    typeof course.teacher === "object" && course.teacher?.name
-      ? course.teacher.name
-      : "EduCore Instructor";
+  if (!course) {
+    return (
+      <div className="min-h-[70vh] flex flex-col items-center justify-center text-center p-6">
+        <div className="glass-panel p-10 rounded-3xl border border-slate-800 max-w-md w-full">
+          <BookOpen className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-white mb-2">Course Not Found</h2>
+          <p className="text-xs text-slate-400 mb-6">The requested course could not be located in our database.</p>
+          <Link
+            href="/courses"
+            className="px-6 py-3 rounded-xl text-xs font-bold text-white gradient-button inline-flex items-center gap-2"
+          >
+            <span>Explore All Courses</span>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const isMongoId = (str: any) => typeof str === "string" && /^[0-9a-fA-F]{24}$/.test(str);
+
+  const rawTeacherName =
+    (typeof course.teacher === "object" && course.teacher?.name && !isMongoId(course.teacher.name) ? course.teacher.name : null) ||
+    (course.teacherName && !isMongoId(course.teacherName) ? course.teacherName : null) ||
+    (course.instructorName && !isMongoId(course.instructorName) ? course.instructorName : null) ||
+    (typeof course.teacher === "string" && !isMongoId(course.teacher) && course.teacher.length < 35 ? course.teacher : null);
+
+  const teacherName = rawTeacherName || "Asma Akter";
 
   const teacherAvatar =
-    typeof course.teacher === "object" && course.teacher?.avatar
-      ? course.teacher.avatar
-      : "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150";
+    (typeof course.teacher === "object" && course.teacher?.avatar) ||
+    course.teacherAvatar ||
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(teacherName)}&background=7c3aed&color=fff&bold=true`;
 
   const teacherTitle =
-    typeof course.teacher === "object" && course.teacher?.title
-      ? course.teacher.title
-      : "Senior Course Instructor";
+    (typeof course.teacher === "object" && course.teacher?.title) ||
+    course.teacherTitle ||
+    "Course Instructor & Educator";
 
   const teacherBio =
-    typeof course.teacher === "object" && course.teacher?.bio
-      ? course.teacher.bio
-      : "Experienced professional instructor teaching on EduCore LMS.";
+    (typeof course.teacher === "object" && course.teacher?.bio) ||
+    course.teacherBio ||
+    `${teacherName} is a verified course creator and educator on the EduCore platform.`;
 
   const learningOutcomes = Array.isArray(course.learningOutcomes) ? course.learningOutcomes : [];
   const sections = Array.isArray(course.sections) ? course.sections : [];
-  const rating = typeof course.averageRating === "number" ? course.averageRating : 4.9;
+  const rating = typeof course.averageRating === "number" && course.averageRating > 0 ? course.averageRating : 0;
   const reviews = typeof course.totalReviews === "number" ? course.totalReviews : 0;
   const students = typeof course.totalStudents === "number" ? course.totalStudents : 0;
   const totalLessonsCount =
@@ -125,8 +152,51 @@ export default function CourseDetailsPage() {
   };
 
   const handleEnroll = () => {
-    router.push(`/student/learn/${course.slug || course._id}`);
+    if (!user) {
+      Swal.fire({
+        icon: "info",
+        title: "Student Account Required",
+        text: "Please login or register as a Student to enroll in this course.",
+        showCancelButton: true,
+        confirmButtonText: "Login as Student",
+        confirmButtonColor: "#7c3aed",
+        background: "#0f172a",
+        color: "#ffffff",
+      }).then((res) => {
+        if (res.isConfirmed) {
+          router.push(`/login?redirect=/courses/${course?.slug || course?._id}`);
+        }
+      });
+      return;
+    }
+
+    if (user.role !== "student") {
+      Swal.fire({
+        icon: "warning",
+        title: "Student Role Required",
+        text: `You are currently logged in as a ${user.role}. Course enrollment is for Students. Teachers and Admins have full management control in their Dashboard.`,
+        confirmButtonColor: "#7c3aed",
+        background: "#0f172a",
+        color: "#ffffff",
+      });
+      return;
+    }
+
+    // Student Enrolled!
+    Swal.fire({
+      icon: "success",
+      title: "Enrollment Successful! 🎉",
+      text: "You have enrolled in this course. Taking you to your learning player...",
+      timer: 1500,
+      showConfirmButton: false,
+      background: "#0f172a",
+      color: "#ffffff",
+    });
+    setTimeout(() => {
+      router.push(`/student/learn/${course?.slug || course?._id}`);
+    }, 1500);
   };
+
 
   return (
     <div className="min-h-screen py-10">
@@ -147,11 +217,18 @@ export default function CourseDetailsPage() {
             </p>
 
             <div className="flex flex-wrap items-center gap-6 text-xs text-slate-300 pt-2">
-              <div className="flex items-center gap-1 text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg">
-                <Star className="w-4 h-4 fill-amber-400" />
-                <span className="font-bold">{rating.toFixed(1)}</span>
-                <span className="text-slate-400">({reviews} reviews)</span>
-              </div>
+              {reviews > 0 ? (
+                <div className="flex items-center gap-1 text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg">
+                  <Star className="w-4 h-4 fill-amber-400" />
+                  <span className="font-bold">{rating.toFixed(1)}</span>
+                  <span className="text-slate-400">({reviews} reviews)</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 text-purple-300 bg-purple-900/30 border border-purple-500/30 px-2.5 py-1 rounded-lg text-xs font-semibold">
+                  <Star className="w-3.5 h-3.5 fill-purple-400 text-purple-400" />
+                  <span>New Course</span>
+                </div>
+              )}
               <div className="flex items-center gap-1.5">
                 <Users className="w-4 h-4 text-blue-400" />
                 <span>{students} enrolled students</span>
@@ -225,32 +302,69 @@ export default function CourseDetailsPage() {
 
                       {isOpen && (
                         <div className="border-t border-slate-800/80 divide-y divide-slate-800/50 bg-slate-950/40">
-                          {lessons.map((lesson, lIdx) => (
-                            <div
-                              key={lIdx}
-                              onClick={() => {
-                                if (lesson.isFreePreview || user?.role === "teacher" || user?.role === "admin") {
-                                  setShowPreviewModal(true);
-                                } else {
-                                  router.push(`/student/learn/${course.slug || course._id}`);
-                                }
-                              }}
-                              className="p-3.5 flex items-center justify-between text-xs text-slate-300 hover:bg-purple-950/30 hover:text-white cursor-pointer transition-colors group"
-                            >
-                              <div className="flex items-center gap-3">
-                                <Play className="w-3.5 h-3.5 text-purple-400 group-hover:scale-110 transition-transform" />
-                                <span className="group-hover:text-purple-300 transition-colors">{lesson.title}</span>
-                              </div>
-                              <div className="flex items-center gap-3">
-                                {lesson.isFreePreview && (
-                                  <span className="text-[10px] font-bold text-purple-300 bg-purple-900/40 px-2 py-0.5 rounded border border-purple-500/30">
-                                    Free Preview
+                          {lessons.map((lesson: any, lIdx: number) => {
+                            const lessonId = lesson._id || lesson.id || String(lIdx);
+                            const isQuiz = lesson.type === "quiz";
+                            const isAssignment = lesson.type === "assignment";
+
+                            return (
+                              <div
+                                key={lIdx}
+                                onClick={() => {
+                                  if (lesson.isFreePreview) {
+                                    setShowPreviewModal(true);
+                                    return;
+                                  }
+                                  if (!user || user.role !== "student") {
+                                    handleEnroll();
+                                    return;
+                                  }
+                                  router.push(`/student/learn/${course.slug || course._id}?lessonId=${lessonId}`);
+                                }}
+                                className="p-3.5 flex items-center justify-between text-xs text-slate-300 hover:bg-purple-950/30 hover:text-white cursor-pointer transition-colors group"
+                              >
+
+                                <div className="flex items-center gap-3">
+                                  {isQuiz ? (
+                                    <div className="w-5 h-5 rounded-md bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/30 group-hover:scale-110 transition-transform">
+                                      <HelpCircle className="w-3 h-3" />
+                                    </div>
+                                  ) : isAssignment ? (
+                                    <div className="w-5 h-5 rounded-md bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30 group-hover:scale-110 transition-transform">
+                                      <BookOpen className="w-3 h-3" />
+                                    </div>
+                                  ) : (
+                                    <div className="w-5 h-5 rounded-md bg-purple-500/20 text-purple-400 flex items-center justify-center shrink-0 border border-purple-500/30 group-hover:scale-110 transition-transform">
+                                      <Play className="w-3 h-3 ml-0.5" />
+                                    </div>
+                                  )}
+                                  <span className="group-hover:text-purple-300 transition-colors font-medium">
+                                    {lesson.title}
                                   </span>
-                                )}
-                                <span className="text-slate-500">{lesson.durationMinutes || 10} mins</span>
+                                </div>
+                                <div className="flex items-center gap-2.5">
+                                  {isQuiz && (
+                                    <span className="text-[10px] font-bold text-amber-300 bg-amber-900/40 px-2 py-0.5 rounded border border-amber-500/30">
+                                      Quiz
+                                    </span>
+                                  )}
+                                  {isAssignment && (
+                                    <span className="text-[10px] font-bold text-emerald-300 bg-emerald-900/40 px-2 py-0.5 rounded border border-emerald-500/30">
+                                      Assignment
+                                    </span>
+                                  )}
+                                  {lesson.isFreePreview && !isQuiz && !isAssignment && (
+                                    <span className="text-[10px] font-bold text-purple-300 bg-purple-900/40 px-2 py-0.5 rounded border border-purple-500/30">
+                                      Free Preview
+                                    </span>
+                                  )}
+                                  {lesson.durationMinutes && Number(lesson.durationMinutes) > 0 ? (
+                                    <span className="text-slate-500">{lesson.durationMinutes} mins</span>
+                                  ) : null}
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -320,20 +434,41 @@ export default function CourseDetailsPage() {
                 {couponMsg && <p className="text-[11px] font-medium text-emerald-400 mt-1">{couponMsg}</p>}
               </div>
 
-              {/* Action Buttons */}
-              {user?.role === "teacher" || user?.role === "admin" ? (
-                <button
-                  onClick={() => router.push(`/student/learn/${course.slug || course._id}`)}
-                  className="w-full py-4 rounded-xl text-sm font-bold text-purple-200 bg-purple-950/60 border border-purple-500/40 hover:bg-purple-900/80 transition-all flex items-center justify-center gap-2 shadow-lg"
-                >
-                  <Play className="w-4 h-4 text-purple-400 fill-purple-400" />
-                  <span>Preview Course Player (Instructor Mode)</span>
-                </button>
+              {/* Action Buttons based on Role */}
+              {user?.role === "teacher" ? (
+                <div className="space-y-3">
+                  <div className="p-3 rounded-xl bg-blue-950/40 border border-blue-500/30 text-blue-300 text-xs flex items-start gap-2">
+                    <ShieldCheck className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+                    <span>Teacher Account: You manage courses from Teacher Studio. Students enroll to watch.</span>
+                  </div>
+                  <button
+                    onClick={() => router.push("/teacher/dashboard")}
+                    className="w-full py-3.5 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 cursor-pointer"
+                  >
+                    <BookOpen className="w-4 h-4" />
+                    <span>Go to Teacher Studio</span>
+                  </button>
+                </div>
+              ) : user?.role === "admin" ? (
+                <div className="space-y-3">
+                  <div className="p-3 rounded-xl bg-purple-950/40 border border-purple-500/30 text-purple-300 text-xs flex items-start gap-2">
+                    <ShieldCheck className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+                    <span>Admin Account: You have full platform management access in Admin Dashboard.</span>
+                  </div>
+                  <button
+                    onClick={() => router.push("/admin/dashboard")}
+                    className="w-full py-3.5 rounded-xl text-sm font-bold text-white gradient-button transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-600/30 cursor-pointer"
+                  >
+                    <BookOpen className="w-4 h-4" />
+                    <span>Go to Admin Dashboard</span>
+                  </button>
+                </div>
               ) : (
                 <button
                   onClick={handleEnroll}
-                  className="w-full py-4 rounded-xl text-sm font-bold text-white gradient-button shadow-lg shadow-purple-600/30 flex items-center justify-center gap-2"
+                  className="w-full py-4 rounded-xl text-sm font-bold text-white gradient-button shadow-lg shadow-purple-600/30 flex items-center justify-center gap-2 hover:scale-[1.02] transition-all cursor-pointer"
                 >
+                  <Play className="w-4 h-4 fill-white" />
                   <span>Enroll & Start Learning Now</span>
                 </button>
               )}
@@ -357,6 +492,7 @@ export default function CourseDetailsPage() {
           </div>
         </div>
       </div>
+
 
       {/* Course Video Preview Modal */}
       {showPreviewModal && (

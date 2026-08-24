@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { API_BASE_URL } from "@/lib/api";
 import {
   BookOpen,
   Search,
@@ -17,6 +18,10 @@ import {
   ChevronDown,
   Menu,
   X,
+  CheckCircle,
+  Clock,
+  ExternalLink,
+  Flame,
 } from "lucide-react";
 
 export const Navbar: React.FC = () => {
@@ -25,6 +30,149 @@ export const Navbar: React.FC = () => {
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [readIds, setReadIds] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        return JSON.parse(localStorage.getItem("educore_read_notifs") || "[]");
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
+  });
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  const markAsRead = (id: string) => {
+    setReadIds((prev) => {
+      if (prev.includes(id)) return prev;
+      const updated = [...prev, id];
+      try {
+        localStorage.setItem("educore_read_notifs", JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  };
+
+  const markAllAsRead = () => {
+    const allIds = Array.from(new Set([...readIds, ...notifications.map((n) => n.id)]));
+    setReadIds(allIds);
+    try {
+      localStorage.setItem("educore_read_notifs", JSON.stringify(allIds));
+    } catch (e) {}
+  };
+
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
+        setNotificationsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Fetch real notification events (like pending courses for Admin / Teacher)
+  useEffect(() => {
+    if (!user) {
+      setNotifications([]);
+      return;
+    }
+
+    const fetchNotifications = async () => {
+      const notifList: any[] = [];
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/courses?status=all&t=${Date.now()}`, {
+          cache: "no-store",
+        });
+        const data = await res.json();
+        if (data.success && Array.isArray(data.courses)) {
+          if (user.role === "admin") {
+            const pendingCourses = data.courses.filter(
+              (c: any) => String(c.status).toLowerCase() === "pending"
+            );
+            pendingCourses.forEach((c: any) => {
+              const teacherName =
+                typeof c.teacher === "object" ? c.teacher?.name || "Instructor" : c.teacher || "Instructor";
+              notifList.push({
+                id: `pending-${c._id || c.slug}`,
+                title: "Course Pending Approval",
+                desc: `"${c.title}" was submitted by ${teacherName} for review.`,
+                time: "Action Required",
+                link: "/admin/dashboard?tab=courses",
+                icon: Clock,
+                color: "text-amber-400 bg-amber-500/10 border-amber-500/30",
+              });
+            });
+          } else if (user.role === "teacher") {
+            const myCourses = data.courses.filter((c: any) => {
+              const tId = typeof c.teacher === "object" ? c.teacher?._id || c.teacher?.id : c.teacher;
+              return tId === user.id || tId === (user as any)._id;
+            });
+            myCourses.forEach((c: any) => {
+              const isPub = String(c.status).toLowerCase() === "published";
+              notifList.push({
+                id: `teacher-course-${c._id || c.slug}`,
+                title: isPub ? "Course Live on Platform" : "Course Under Admin Review",
+                desc: isPub
+                  ? `"${c.title}" is currently published and open for enrollments.`
+                  : `"${c.title}" is waiting for admin approval.`,
+                time: isPub ? "Active" : "Pending",
+                link: "/teacher/dashboard",
+                icon: isPub ? CheckCircle : Clock,
+                color: isPub
+                  ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+                  : "text-amber-400 bg-amber-500/10 border-amber-500/30",
+              });
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("Notification fetch fallback:", err);
+      }
+
+      // Default system notifications based on role
+      if (user.role === "admin") {
+        notifList.push({
+          id: "sys-admin-welcome",
+          title: "System Operations Online",
+          desc: "EduCore LMS database and Redis caching are active.",
+          time: "Just now",
+          link: "/admin/dashboard",
+          icon: ShieldAlert,
+          color: "text-purple-400 bg-purple-500/10 border-purple-500/30",
+        });
+      } else if (user.role === "teacher") {
+        notifList.push({
+          id: "teacher-assignment-sub",
+          title: "New Student Assignments",
+          desc: "You have 2 student submissions waiting for grading.",
+          time: "Today",
+          link: "/teacher/dashboard",
+          icon: Briefcase,
+          color: "text-blue-400 bg-blue-500/10 border-blue-500/30",
+        });
+      } else {
+        notifList.push({
+          id: "student-streak",
+          title: "5 Day Learning Streak Active!",
+          desc: "Complete 1 lesson today to keep your XP multiplier.",
+          time: "Today",
+          link: "/student/dashboard",
+          icon: Flame,
+          color: "text-amber-400 bg-amber-500/10 border-amber-500/30",
+        });
+      }
+
+      setNotifications(notifList);
+    };
+
+    fetchNotifications();
+  }, [user, pathname]);
 
   // Automatically reset demo preview when visiting Home page so guest users get clean home screen
   useEffect(() => {
@@ -40,50 +188,10 @@ export const Navbar: React.FC = () => {
     else router.push("/student/dashboard");
   };
 
-  return (
-    <header className="sticky top-0 z-50 glass-panel border-b border-slate-800/80">
-      {/* Quick Role Switcher Bar - ONLY visible for Guests / Demo Preview, disappears when user logs in */}
-      {(!user || isDemo) && (
-        <div className="bg-gradient-to-r from-purple-950 via-slate-900 to-indigo-950 px-4 py-1.5 text-xs flex justify-between items-center border-b border-purple-500/20">
-          <div className="flex items-center gap-2 text-purple-300 font-medium">
-            <Sparkles className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
-            <span>EduCore SaaS LMS Demo Role Switcher:</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => handleRoleSwitch("student")}
-              className={`px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all ${
-                user?.role === "student" && isDemo
-                  ? "bg-purple-600 text-white shadow-sm"
-                  : "bg-slate-800 text-slate-300 hover:text-white"
-              }`}
-            >
-              👨‍🎓 Student Role
-            </button>
-            <button
-              onClick={() => handleRoleSwitch("teacher")}
-              className={`px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all ${
-                user?.role === "teacher" && isDemo
-                  ? "bg-blue-600 text-white shadow-sm"
-                  : "bg-slate-800 text-slate-300 hover:text-white"
-              }`}
-            >
-              👨‍🏫 Teacher Role
-            </button>
-            <button
-              onClick={() => handleRoleSwitch("admin")}
-              className={`px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all ${
-                user?.role === "admin" && isDemo
-                  ? "bg-rose-600 text-white shadow-sm"
-                  : "bg-slate-800 text-slate-300 hover:text-white"
-              }`}
-            >
-              👑 Admin Role
-            </button>
-          </div>
-        </div>
-      )}
+  const unreadCount = notifications.filter((n) => !readIds.includes(n.id)).length;
 
+  return (
+    <header className="sticky top-0 z-50 bg-[#090d16]/95 backdrop-blur-xl border-b border-slate-800/80 shadow-lg">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-4">
           {/* Brand Logo */}
@@ -159,10 +267,104 @@ export const Navbar: React.FC = () => {
           {/* Right Action Menu */}
           <div className="flex items-center gap-3">
             {user && (
-              <button className="p-2 rounded-full text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors relative">
-                <Bell className="w-5 h-5" />
-                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-purple-500"></span>
-              </button>
+              <div className="relative" ref={notifRef}>
+                <button
+                  onClick={() => setNotificationsOpen(!notificationsOpen)}
+                  className={`p-2 rounded-full transition-all relative ${
+                    notificationsOpen
+                      ? "bg-purple-900/50 text-purple-300 border border-purple-500/40"
+                      : "text-slate-400 hover:text-white hover:bg-slate-800/80"
+                  }`}
+                  title="Notifications"
+                >
+                  <Bell className="w-5 h-5" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center animate-pulse border-2 border-slate-950">
+                      {unreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {/* Notifications Dropdown Panel */}
+                {notificationsOpen && (
+                  <div className="absolute right-0 mt-2 w-80 sm:w-96 glass-panel rounded-3xl shadow-2xl border border-slate-800 z-50 overflow-hidden animate-in fade-in zoom-in duration-200">
+                    <div className="p-4 border-b border-slate-800/80 flex items-center justify-between bg-slate-950/60">
+                      <div className="flex items-center gap-2">
+                        <Bell className="w-4 h-4 text-purple-400" />
+                        <h4 className="text-xs font-black text-white uppercase tracking-wider">
+                          Notifications
+                        </h4>
+                        {unreadCount > 0 && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                            {unreadCount} New
+                          </span>
+                        )}
+                      </div>
+                      {unreadCount > 0 && (
+                        <button
+                          onClick={markAllAsRead}
+                          className="text-[11px] font-semibold text-purple-400 hover:text-purple-300 hover:underline transition-all cursor-pointer"
+                        >
+                          Mark all read
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="max-h-80 overflow-y-auto divide-y divide-slate-800/60 p-2">
+                      {notifications.length === 0 ? (
+                        <div className="py-8 text-center text-slate-500 text-xs font-medium">
+                          No notifications right now.
+                        </div>
+                      ) : (
+                        notifications.map((notif) => {
+                          const IconComp = notif.icon || Bell;
+                          const isUnread = !readIds.includes(notif.id);
+                          return (
+                            <Link
+                              key={notif.id}
+                              href={notif.link || "#"}
+                              onClick={() => {
+                                markAsRead(notif.id);
+                                setNotificationsOpen(false);
+                              }}
+                              className={`p-3 rounded-2xl flex items-start gap-3 transition-colors hover:bg-slate-900/80 group ${
+                                isUnread ? "bg-purple-950/20" : ""
+                              }`}
+                            >
+
+                              <div
+                                className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border ${notif.color}`}
+                              >
+                                <IconComp className="w-4 h-4" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-1">
+                                  <p
+                                    className={`text-xs font-bold truncate ${
+                                      isUnread ? "text-white" : "text-slate-300"
+                                    }`}
+                                  >
+                                    {notif.title}
+                                  </p>
+                                  <span className="text-[10px] font-medium text-slate-400 shrink-0">
+                                    {notif.time}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">
+                                  {notif.desc}
+                                </p>
+                              </div>
+                              {isUnread && (
+                                <span className="w-2 h-2 rounded-full bg-purple-500 mt-1.5 shrink-0" />
+                              )}
+                            </Link>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
             {user ? (

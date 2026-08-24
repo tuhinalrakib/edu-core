@@ -8,11 +8,20 @@ interface CourseCardProps {
 }
 
 export const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
-  const teacherName = typeof course.teacher === "object" && course.teacher?.name ? course.teacher.name : "EduCore Instructor";
+  const isMongoId = (str: any) => typeof str === "string" && /^[0-9a-fA-F]{24}$/.test(str);
+
+  const rawTeacherName =
+    (typeof course.teacher === "object" && course.teacher?.name && !isMongoId(course.teacher.name) ? course.teacher.name : null) ||
+    (course.teacherName && !isMongoId(course.teacherName) ? course.teacherName : null) ||
+    (course.instructorName && !isMongoId(course.instructorName) ? course.instructorName : null) ||
+    (typeof course.teacher === "string" && !isMongoId(course.teacher) && course.teacher.length < 35 ? course.teacher : null);
+
+  const teacherName = rawTeacherName || "Asma Akter";
+
   const teacherAvatar =
-    typeof course.teacher === "object" && course.teacher?.avatar
-      ? course.teacher.avatar
-      : "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150";
+    (typeof course.teacher === "object" && course.teacher?.avatar) ||
+    course.teacherAvatar ||
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(teacherName)}&background=7c3aed&color=fff&bold=true`;
 
   const thumbnail =
     course.thumbnail ||
@@ -25,8 +34,8 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
       : 0);
 
   const price = typeof course.price === "number" ? course.price : 0;
-  const rating = typeof course.averageRating === "number" ? course.averageRating : 4.9;
-  const reviews = typeof course.totalReviews === "number" ? course.totalReviews : 12;
+  const rating = typeof course.averageRating === "number" ? course.averageRating : 0;
+  const reviews = typeof course.totalReviews === "number" ? course.totalReviews : 0;
   const students = typeof course.totalStudents === "number" ? course.totalStudents : 0;
 
   return (
@@ -53,11 +62,17 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
         <div>
           {/* Rating & Stats */}
           <div className="flex items-center justify-between text-xs mb-2.5">
-            <div className="flex items-center gap-1 bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-md font-semibold">
-              <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-              <span>{rating.toFixed(1)}</span>
-              <span className="text-slate-500">({reviews})</span>
-            </div>
+            {reviews > 0 ? (
+              <div className="flex items-center gap-1 bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-md font-semibold">
+                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                <span>{rating.toFixed(1)}</span>
+                <span className="text-slate-500">({reviews})</span>
+              </div>
+            ) : (
+              <span className="text-[11px] font-bold text-purple-400 bg-purple-900/30 border border-purple-500/30 px-2 py-0.5 rounded-md">
+                New Course
+              </span>
+            )}
             <span className="text-slate-400 text-[11px] font-medium">{course.level || "All Levels"}</span>
           </div>
 

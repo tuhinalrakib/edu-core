@@ -1,41 +1,62 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Search, BookOpen, Loader2 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { Search, BookOpen } from "lucide-react";
 import { CourseCard } from "@/components/CourseCard";
 import { API_BASE_URL, CourseType } from "@/lib/api";
+import { EduCoreLoader } from "@/components/EduCoreLoader";
 
 export default function CatalogPage() {
+  const searchParams = useSearchParams();
+  const initialCategory = searchParams?.get("category") || "All";
+
   const [courses, setCourses] = useState<CourseType[]>([]);
+  const [categories, setCategories] = useState<string[]>(["All"]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [selectedCategory, setSelectedCategory] = useState(initialCategory);
   const [selectedLevel, setSelectedLevel] = useState("All");
 
-  const categories = ["All", "Web Development", "Programming", "UI/UX Design", "Design", "Marketing", "Business & SaaS", "Business", "AI", "Data Science"];
   const levels = ["All", "Beginner", "Intermediate", "Advanced", "All Levels"];
 
   useEffect(() => {
-    const fetchCourses = async () => {
+    const fetchCatalogData = async () => {
       setIsLoading(true);
       try {
+        // 1. Fetch real courses
         const res = await fetch(`${API_BASE_URL}/courses`);
         const data = await res.json();
-        if (data.success && Array.isArray(data.courses)) {
-          setCourses(data.courses);
-          return;
-        }
+        const loadedCourses: CourseType[] = data.success && Array.isArray(data.courses) ? data.courses : [];
+        setCourses(loadedCourses);
+
+        // 2. Fetch real categories
+        const catRes = await fetch(`${API_BASE_URL}/categories`);
+        const catData = await catRes.json();
+        const dbCats: string[] = catData.success && Array.isArray(catData.categories)
+          ? catData.categories.map((c: any) => (typeof c === "string" ? c : c.name))
+          : [];
+
+        // Extract from courses as fallback/supplement
+        const courseCats = Array.from(new Set(loadedCourses.map((c) => c.category).filter(Boolean)));
+        const allUniqueCats = Array.from(new Set(["All", ...dbCats, ...courseCats]));
+        setCategories(allUniqueCats);
       } catch (err) {
-        console.warn("Backend course fetch fallback:", err);
-        const localCreated: CourseType[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
-        setCourses(localCreated);
+        console.warn("Backend catalog fetch fallback:", err);
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchCourses();
+    fetchCatalogData();
   }, []);
+
+  useEffect(() => {
+    const catQuery = searchParams?.get("category");
+    if (catQuery) {
+      setSelectedCategory(catQuery);
+    }
+  }, [searchParams]);
 
   const filteredCourses = courses.filter((c) => {
     const titleMatch = c.title ? c.title.toLowerCase().includes(searchQuery.toLowerCase()) : false;
@@ -44,10 +65,10 @@ export default function CatalogPage() {
     const matchesCategory = selectedCategory === "All" || c.category === selectedCategory;
     const matchesLevel = selectedLevel === "All" || c.level === selectedLevel;
 
-    // Show all active courses except archived ones
-    const isNotArchived = c.status !== "archived" && c.status !== "Archived";
+    // Show only approved/published courses to students
+    const isApproved = c.status === "approved" || c.status === "published" || c.status === "Approved" || c.status === "Published";
 
-    return matchesSearch && matchesCategory && matchesLevel && isNotArchived;
+    return matchesSearch && matchesCategory && matchesLevel && isApproved;
   });
 
   return (
@@ -102,9 +123,8 @@ export default function CatalogPage() {
 
       {/* Loading State */}
       {isLoading ? (
-        <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-3">
-          <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
-          <p className="text-xs font-semibold">Loading courses from EduCore database...</p>
+        <div className="py-12">
+          <EduCoreLoader message="Loading available catalog courses" />
         </div>
       ) : filteredCourses.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">

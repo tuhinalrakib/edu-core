@@ -26,7 +26,7 @@ export const EduCoreLoader: React.FC<EduCoreLoaderProps> = ({
       {/* Animated Brand Logo Container */}
       <div className="relative w-24 h-24 flex items-center justify-center">
         {/* Outer Rotating Glowing Ring */}
-        <div className="absolute inset-0 rounded-3xl bg-linear-to-r from-purple-600 via-indigo-600 to-blue-600 animate-spin opacity-75 blur-md" />
+        <div className="absolute inset-0 rounded-3xl bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 animate-spin opacity-75 blur-md" />
         <div className="absolute inset-0 rounded-3xl border-2 border-dashed border-purple-400/40 animate-spin" style={{ animationDuration: "8s" }} />
 
         {/* Center Glass Panel with SVG Icon */}
@@ -38,7 +38,7 @@ export const EduCoreLoader: React.FC<EduCoreLoaderProps> = ({
       {/* Title & Loading Text */}
       <div className="space-y-2 max-w-sm">
         <div className="flex items-center justify-center gap-1.5 text-xs font-extrabold uppercase tracking-widest text-purple-400">
-          <Sparkles className="w-3.5 h-3.5 animate-bounce" />
+          <Sparkles className="w-3.5 h-3.5 animate-bounce text-purple-400" />
           <span>EduCore SaaS LMS</span>
         </div>
         <h3 className="text-base font-bold text-white tracking-tight">
@@ -52,7 +52,7 @@ export const EduCoreLoader: React.FC<EduCoreLoaderProps> = ({
 
       {/* Progress Bar Animation */}
       <div className="w-48 h-1.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800/80">
-        <div className="h-full bg-linear-to-r from-purple-500 via-indigo-500 to-blue-500 rounded-full animate-pulse" />
+        <div className="h-full bg-gradient-to-r from-purple-500 via-indigo-500 to-blue-500 rounded-full animate-pulse" />
       </div>
     </div>
   );

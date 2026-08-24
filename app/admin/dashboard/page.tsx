@@ -288,49 +288,68 @@ export default function AdminDashboard() {
     fetchTeachers();
   }, [token]);
 
-  // 2. Students State
-  const [students, setStudents] = useState([
-    {
-      id: "s1",
-      name: "Alex Rivera",
-      email: "student@educore.com",
-      status: "active", // active, suspended
-      joinedDate: "2026-02-01",
-      enrolledCount: 6,
-      completedCount: 3,
-      avatar: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150",
-      purchasedCourses: [
-        { title: "Next.js 15 & React 19 Full-Stack SaaS Masterclass", progress: 85, price: 99.99 },
-        { title: "Node.js & Microservices Architecture", progress: 100, price: 79.99 },
-        { title: "UI/UX Design Systems with Figma", progress: 40, price: 49.99 },
-      ],
-    },
-    {
-      id: "s2",
-      name: "Jessica Chen",
-      email: "jessica.c@gmail.com",
-      status: "active",
-      joinedDate: "2026-04-12",
-      enrolledCount: 4,
-      completedCount: 2,
-      avatar: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150",
-      purchasedCourses: [
-        { title: "Python for Data Science & Machine Learning", progress: 60, price: 89.99 },
-        { title: "Docker & Kubernetes Deployment Handbook", progress: 100, price: 69.99 },
-      ],
-    },
-    {
-      id: "s3",
-      name: "Michael Vance",
-      email: "michael.v@yahoo.com",
-      status: "suspended",
-      joinedDate: "2025-11-05",
-      enrolledCount: 2,
-      completedCount: 0,
-      avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150",
-      purchasedCourses: [{ title: "Cyber Security Fundamentals", progress: 15, price: 59.99 }],
-    },
-  ]);
+  // 2. Students State (Dynamic from MongoDB Database API)
+  const [students, setStudents] = useState<any[]>([]);
+  const [isLoadingStudents, setIsLoadingStudents] = useState(true);
+
+  // Dynamic Fetch Students Effect
+  useEffect(() => {
+    const fetchStudents = async () => {
+      setIsLoadingStudents(true);
+      try {
+        const headers: any = {};
+        if (token) headers.Authorization = `Bearer ${token}`;
+        const res = await fetch(`${API_BASE_URL}/users?role=student&t=${Date.now()}`, {
+          headers,
+          cache: "no-store",
+        });
+        const data = await res.json();
+
+        if (data.success && Array.isArray(data.users)) {
+          const apiStudents = data.users.map((u: any) => ({
+            id: u._id || u.id,
+            _id: u._id || u.id,
+            name: u.name || "Student",
+            email: u.email,
+            status: u.studentStatus || u.status || "active",
+            joinedDate: u.createdAt ? new Date(u.createdAt).toISOString().split("T")[0] : "2026-02-01",
+            enrolledCount: Array.isArray(u.enrolledCourses) ? u.enrolledCourses.length : 0,
+            completedCount: 0,
+            avatar: u.avatar || `https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150`,
+            purchasedCourses: Array.isArray(u.enrolledCourses) && u.enrolledCourses.length > 0
+              ? u.enrolledCourses.map((c: any) => ({
+                  title: typeof c === "object" ? c.title : "Enrolled Course",
+                  progress: 50,
+                  price: typeof c === "object" ? c.price || 49.99 : 49.99,
+                }))
+              : [],
+          }));
+
+          const localStudents: any[] = JSON.parse(localStorage.getItem("educore_students") || "[]");
+          const merged = [...apiStudents];
+          localStudents.forEach((ls) => {
+            if (!merged.some((m) => m.id === ls.id || m.email === ls.email)) {
+              merged.push(ls);
+            }
+          });
+
+          setStudents(merged);
+          return;
+        }
+      } catch (err) {
+        console.warn("Backend students fetch warning, loading stored:", err);
+      } finally {
+        setIsLoadingStudents(false);
+      }
+
+      const storedStudents = JSON.parse(localStorage.getItem("educore_students") || "[]");
+      if (storedStudents.length > 0) {
+        setStudents(storedStudents);
+      }
+    };
+
+    fetchStudents();
+  }, [token]);
 
   // 3. Courses Management State (Fetched dynamically from DB)
   const [adminCourses, setAdminCourses] = useState<any[]>([]);
@@ -388,11 +407,17 @@ export default function AdminDashboard() {
   useEffect(() => {
     const fetchAdminCourses = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/courses`);
+        const res = await fetch(`${API_BASE_URL}/courses?status=all&t=${Date.now()}`, {
+          cache: "no-store",
+          headers: {
+            "Cache-Control": "no-cache",
+          },
+        });
         const data = await res.json();
         if (data.success && Array.isArray(data.courses)) {
           const apiCourses = data.courses.map((c: any) => ({
             id: c._id || c.id,
+            _id: c._id || c.id,
             title: c.title,
             teacher: typeof c.teacher === "object" ? (c.teacher?.name || c.teacher?.email) : c.teacher || "Instructor",
             teacherEmail: typeof c.teacher === "object" ? c.teacher?.email : "",
@@ -414,6 +439,7 @@ export default function AdminDashboard() {
       const localCreated: any[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
       const formattedLocal = localCreated.map((lc) => ({
         id: lc._id || lc.id || "lc-" + Date.now(),
+        _id: lc._id || lc.id,
         title: lc.title,
         teacher: typeof lc.teacher === "object" ? (lc.teacher?.name || lc.teacher?.email) : lc.teacher || "Instructor",
         teacherEmail: typeof lc.teacher === "object" ? lc.teacher?.email : "",
@@ -683,8 +709,29 @@ export default function AdminDashboard() {
     });
   };
 
-  const handleStudentStatusChange = (studentId: string, newStatus: "active" | "suspended") => {
-    setStudents((prev) => prev.map((s) => (s.id === studentId ? { ...s, status: newStatus } : s)));
+  const handleStudentStatusChange = async (studentId: string, newStatus: "active" | "suspended") => {
+    try {
+      const headers: any = { "Content-Type": "application/json" };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      await fetch(`${API_BASE_URL}/users/${studentId}/status`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ studentStatus: newStatus, status: newStatus }),
+      });
+    } catch (err) {
+      console.warn("Backend student status update fallback:", err);
+    }
+
+    setStudents((prev) => {
+      const updated = prev.map((s) => (s.id === studentId || s._id === studentId ? { ...s, status: newStatus } : s));
+      localStorage.setItem("educore_students", JSON.stringify(updated));
+      return updated;
+    });
+
+    if (selectedStudent && (selectedStudent.id === studentId || selectedStudent._id === studentId)) {
+      setSelectedStudent({ ...selectedStudent, status: newStatus });
+    }
+
     Swal.fire({
       icon: "success",
       title: "Student Status Updated",
@@ -695,10 +742,10 @@ export default function AdminDashboard() {
     });
   };
 
-  const handleDeleteStudent = (studentId: string) => {
+  const handleDeleteStudent = async (studentId: string) => {
     Swal.fire({
       title: "Delete Student Account?",
-      text: "This action will permanently delete the student account.",
+      text: "This action will permanently delete the student account from the system.",
       icon: "warning",
       showCancelButton: true,
       confirmButtonText: "Yes, Delete",
@@ -707,13 +754,30 @@ export default function AdminDashboard() {
       color: "#ffffff",
       confirmButtonColor: "#ef4444",
       cancelButtonColor: "#334155",
-    }).then((res) => {
+    }).then(async (res) => {
       if (res.isConfirmed) {
-        setStudents((prev) => prev.filter((s) => s.id !== studentId));
+        try {
+          const headers: any = {};
+          if (token) headers.Authorization = `Bearer ${token}`;
+          await fetch(`${API_BASE_URL}/users/${studentId}`, { method: "DELETE", headers });
+        } catch (err) {
+          console.warn("Backend delete student fallback:", err);
+        }
+
+        setStudents((prev) => {
+          const updated = prev.filter((s) => s.id !== studentId && s._id !== studentId);
+          localStorage.setItem("educore_students", JSON.stringify(updated));
+          return updated;
+        });
+
+        if (selectedStudent && (selectedStudent.id === studentId || selectedStudent._id === studentId)) {
+          setSelectedStudent(null);
+        }
+
         Swal.fire({
           icon: "success",
           title: "Student Deleted",
-          text: "Student account has been removed.",
+          text: "Student account has been removed from database.",
           background: "#0f172a",
           color: "#ffffff",
           confirmButtonColor: "#7c3aed",
@@ -1031,9 +1095,27 @@ export default function AdminDashboard() {
 
       {/* 8 Primary Key Metrics Overview Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Total Students" value="25,410" icon={Users} change="18% MoM" gradient="from-blue-600 to-cyan-600" />
-        <StatCard title="Total Teachers" value="450" icon={UserCheck} change="12% MoM" gradient="from-rose-600 to-pink-600" />
-        <StatCard title="Total Courses" value="1,280" icon={BookOpen} change="24% MoM" gradient="from-purple-600 to-indigo-600" />
+        <StatCard
+          title="Total Students"
+          value={isLoadingStudents ? "..." : students.length.toString()}
+          icon={Users}
+          change={`${students.filter((s) => s.status === "active").length} Active`}
+          gradient="from-blue-600 to-cyan-600"
+        />
+        <StatCard
+          title="Total Teachers"
+          value={teachers.length.toString()}
+          icon={UserCheck}
+          change={`${teachers.filter((t) => t.status === "approved").length} Approved`}
+          gradient="from-rose-600 to-pink-600"
+        />
+        <StatCard
+          title="Total Courses"
+          value={adminCourses.length.toString()}
+          icon={BookOpen}
+          change={`${adminCourses.filter((c) => c.status === "published" || c.status === "approved").length} Published`}
+          gradient="from-purple-600 to-indigo-600"
+        />
         <StatCard title="Platform Revenue" value="$128,450.00" icon={DollarSign} change="32% MoM" gradient="from-emerald-600 to-teal-600" />
 
         <StatCard title="Today's Sales" value="$2,840.00" icon={TrendingUp} change="+14% vs yesterday" gradient="from-emerald-600 to-cyan-600" />
@@ -1336,66 +1418,89 @@ export default function AdminDashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
-                {students
-                  .filter(
-                    (s) =>
-                      s.name.toLowerCase().includes(studentSearch.toLowerCase()) ||
-                      s.email.toLowerCase().includes(studentSearch.toLowerCase())
-                  )
-                  .map((s) => (
-                    <tr key={s.id} className="hover:bg-slate-900/50">
-                      <td className="p-3">
-                        <div className="flex items-center gap-3">
-                          <img src={s.avatar} className="w-9 h-9 rounded-full object-cover border border-blue-500/30" />
-                          <span className="font-bold text-white">{s.name}</span>
-                        </div>
-                      </td>
-                      <td className="p-3 text-slate-400">{s.email}</td>
-                      <td className="p-3">{s.joinedDate}</td>
-                      <td className="p-3 font-semibold text-purple-400">{s.enrolledCount} Enrolled</td>
-                      <td className="p-3">
-                        <span
-                          className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase ${
-                            s.status === "active"
-                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                              : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
-                          }`}
-                        >
-                          {s.status}
-                        </span>
-                      </td>
-                      <td className="p-3 text-right space-x-1.5">
-                        <button
-                          onClick={() => setSelectedStudent(s)}
-                          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold"
-                          title="View Progress & Purchased Courses"
-                        >
-                          <Eye className="w-3.5 h-3.5 inline mr-1" /> Progress
-                        </button>
-                        {s.status === "active" ? (
-                          <button
-                            onClick={() => handleStudentStatusChange(s.id, "suspended")}
-                            className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold"
+                {isLoadingStudents ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-slate-400">
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <RefreshCw className="w-6 h-6 animate-spin text-purple-500" />
+                        <span className="text-xs font-semibold">Loading students from EduCore database...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : students.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-slate-500 text-xs font-medium">
+                      No registered students found in database.
+                    </td>
+                  </tr>
+                ) : (
+                  students
+                    .filter(
+                      (s) =>
+                        (s.name || "").toLowerCase().includes(studentSearch.toLowerCase()) ||
+                        (s.email || "").toLowerCase().includes(studentSearch.toLowerCase())
+                    )
+                    .map((s) => (
+                      <tr key={s.id || s._id} className="hover:bg-slate-900/50">
+                        <td className="p-3">
+                          <div className="flex items-center gap-3">
+                            {s.avatar ? (
+                              <img src={s.avatar} className="w-9 h-9 rounded-full object-cover border border-blue-500/30" alt={s.name} />
+                            ) : (
+                              <div className="w-9 h-9 rounded-full bg-linear-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-xs uppercase">
+                                {s.name ? s.name.charAt(0) : "S"}
+                              </div>
+                            )}
+                            <span className="font-bold text-white">{s.name}</span>
+                          </div>
+                        </td>
+                        <td className="p-3 text-slate-400">{s.email}</td>
+                        <td className="p-3">{s.joinedDate}</td>
+                        <td className="p-3 font-semibold text-purple-400">{s.enrolledCount} Enrolled</td>
+                        <td className="p-3">
+                          <span
+                            className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase ${
+                              s.status === "active"
+                                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                            }`}
                           >
-                            Suspend
-                          </button>
-                        ) : (
+                            {s.status}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right space-x-1.5">
                           <button
-                            onClick={() => handleStudentStatusChange(s.id, "active")}
-                            className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-bold"
+                            onClick={() => setSelectedStudent(s)}
+                            className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold"
+                            title="View Progress & Purchased Courses"
                           >
-                            Activate
+                            <Eye className="w-3.5 h-3.5 inline mr-1" /> Progress
                           </button>
-                        )}
-                        <button
-                          onClick={() => handleDeleteStudent(s.id)}
-                          className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-bold"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 inline" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                          {s.status === "active" ? (
+                            <button
+                              onClick={() => handleStudentStatusChange(s.id || s._id, "suspended")}
+                              className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold"
+                            >
+                              Suspend
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleStudentStatusChange(s.id || s._id, "active")}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-bold"
+                            >
+                              Activate
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDeleteStudent(s.id || s._id)}
+                            className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-bold"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 inline" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                )}
               </tbody>
             </table>
           </div>

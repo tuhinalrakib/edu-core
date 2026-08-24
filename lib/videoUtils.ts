@@ -90,13 +90,16 @@ export function parseVideoUrl(url: string = "", specifiedProvider?: string): Par
     if (finalYtId) {
       return {
         provider: "youtube",
-        embedUrl: `https://www.youtube-nocookie.com/embed/${finalYtId}?autoplay=0&rel=0&modestbranding=1&enablejsapi=1`,
+        embedUrl: `https://www.youtube-nocookie.com/embed/${finalYtId}?autoplay=0&rel=0&modestbranding=1&enablejsapi=1&controls=0&disablekb=0&iv_load_policy=3&fs=0`,
         originalUrl: cleanUrl,
         isIframe: true,
         isValid: true,
       };
     }
   }
+
+
+
 
   // 3. Check Vimeo
   const vimeoId = extractVimeoId(cleanUrl);

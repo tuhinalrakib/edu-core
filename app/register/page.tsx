@@ -134,33 +134,6 @@ export default function RegisterPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">I want to register as</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setRole("student")}
-                className={`py-2 text-xs font-bold rounded-xl transition-all border ${
-                  role === "student"
-                    ? "bg-purple-900/50 border-purple-500 text-purple-200"
-                    : "bg-slate-900 border-slate-800 text-slate-400"
-                }`}
-              >
-                👨‍🎓 Student
-              </button>
-              <button
-                type="button"
-                onClick={() => setRole("teacher")}
-                className={`py-2 text-xs font-bold rounded-xl transition-all border ${
-                  role === "teacher"
-                    ? "bg-blue-900/50 border-blue-500 text-blue-200"
-                    : "bg-slate-900 border-slate-800 text-slate-400"
-                }`}
-              >
-                👨‍🏫 Teacher
-              </button>
-            </div>
-          </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">Full Name</label>
@@ -212,8 +185,8 @@ export default function RegisterPage() {
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-            {password.length > 0 && (
-              <div className="grid grid-cols-2 gap-1.5 mt-2.5 p-2.5 bg-slate-900/60 rounded-xl border border-slate-800/80 text-[11px]">
+            {password.length > 0 && !isPasswordValid && (
+              <div className="grid grid-cols-2 gap-1.5 mt-2.5 p-2.5 bg-slate-900/60 rounded-xl border border-slate-800/80 text-[11px] transition-all animate-fadeIn">
                 <div className={`flex items-center gap-1.5 ${hasUppercase ? "text-emerald-400 font-medium" : "text-slate-500"}`}>
                   {hasUppercase ? <Check className="w-3 h-3 text-emerald-400 shrink-0" /> : <X className="w-3 h-3 text-slate-500 shrink-0" />}
                   <span>Uppercase (A-Z)</span>
