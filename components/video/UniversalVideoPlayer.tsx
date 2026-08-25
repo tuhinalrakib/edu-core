@@ -49,6 +49,8 @@ export function UniversalVideoPlayer({
   const [duration, setDuration] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+  const hideControlsTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Send command to YouTube Iframe API
   const sendYoutubeCommand = useCallback((func: string, args: any[] = []) => {
@@ -118,14 +120,68 @@ export function UniversalVideoPlayer({
     };
   }, [onEnded]);
 
-  // Track Fullscreen state
+  // Track Fullscreen state across standard & vendor-prefixed browser APIs
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(Boolean(document.fullscreenElement));
+      const doc = document as any;
+      const isNativeFs = Boolean(
+        doc.fullscreenElement ||
+        doc.webkitFullscreenElement ||
+        doc.mozFullScreenElement ||
+        doc.msFullscreenElement
+      );
+      if (!isNativeFs && isFullscreen) {
+        // If native fullscreen was exited via browser gesture/ESC, update state
+        setIsFullscreen(false);
+      } else if (isNativeFs) {
+        setIsFullscreen(true);
+      }
     };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+
     document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
-  }, []);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    document.addEventListener("mozfullscreenchange", handleFullscreenChange);
+    document.addEventListener("MSFullscreenChange", handleFullscreenChange);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("mozfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("MSFullscreenChange", handleFullscreenChange);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isFullscreen]);
+
+  // Lock body scroll during fullscreen
+  useEffect(() => {
+    if (isFullscreen) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [isFullscreen]);
+
+  // Auto-hide controls in Fullscreen on inactivity
+  const handleUserActivity = () => {
+    setShowControls(true);
+    if (hideControlsTimerRef.current) {
+      clearTimeout(hideControlsTimerRef.current);
+    }
+    if (isFullscreen) {
+      hideControlsTimerRef.current = setTimeout(() => {
+        setShowControls(false);
+      }, 3500);
+    }
+  };
 
   // Play / Pause Toggle
   const togglePlay = () => {
@@ -213,17 +269,61 @@ export function UniversalVideoPlayer({
     }
   };
 
-  // Toggle Fullscreen
+  // Toggle Fullscreen with cross-browser and iOS Mobile Fallback
   const toggleFullscreen = () => {
-    if (!containerRef.current) return;
-    if (!document.fullscreenElement) {
-      if (containerRef.current.requestFullscreen) {
-        containerRef.current.requestFullscreen().catch(() => {});
+    const doc = document as any;
+    const container = containerRef.current as any;
+    const isCurrentlyFullscreen = Boolean(
+      doc.fullscreenElement ||
+      doc.webkitFullscreenElement ||
+      doc.mozFullScreenElement ||
+      doc.msFullscreenElement ||
+      isFullscreen
+    );
+
+    if (!isCurrentlyFullscreen) {
+      // Enter Fullscreen
+      const requestFs =
+        container?.requestFullscreen ||
+        container?.webkitRequestFullscreen ||
+        container?.mozRequestFullScreen ||
+        container?.msRequestFullscreen;
+
+      if (requestFs) {
+        try {
+          const promise = requestFs.call(container);
+          if (promise && typeof promise.then === "function") {
+            promise.then(() => setIsFullscreen(true)).catch(() => {
+              // Fallback for devices where requestFullscreen is blocked
+              setIsFullscreen(true);
+            });
+          } else {
+            setIsFullscreen(true);
+          }
+        } catch {
+          setIsFullscreen(true);
+        }
+      } else {
+        // iOS Safari on iPhone fallback (pseudo-fullscreen)
+        setIsFullscreen(true);
       }
     } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen().catch(() => {});
+      // Exit Fullscreen
+      const exitFs =
+        doc.exitFullscreen ||
+        doc.webkitExitFullscreen ||
+        doc.mozCancelFullScreen ||
+        doc.msExitFullscreen;
+
+      if (exitFs && (doc.fullscreenElement || doc.webkitFullscreenElement)) {
+        try {
+          const promise = exitFs.call(doc);
+          if (promise && typeof promise.then === "function") {
+            promise.catch(() => {});
+          }
+        } catch {}
       }
+      setIsFullscreen(false);
     }
   };
 
@@ -252,12 +352,44 @@ export function UniversalVideoPlayer({
   return (
     <div
       ref={containerRef}
-      className={`relative w-full bg-black overflow-hidden select-none rounded-2xl shadow-2xl border border-slate-900 flex flex-col ${
-        isFullscreen ? "h-screen justify-between" : ""
-      } ${className}`}
+      onMouseMove={handleUserActivity}
+      onTouchStart={handleUserActivity}
+      className={`bg-black select-none flex flex-col transition-all duration-200 ${
+        isFullscreen
+          ? "fixed inset-0 z-[999999] w-screen h-[100dvh] h-screen m-0 p-0 rounded-none border-none justify-between overflow-hidden"
+          : `relative w-full overflow-hidden rounded-2xl shadow-2xl border border-slate-900 ${className}`
+      }`}
     >
-      {/* 1. MAIN VIDEO VIEWPORT */}
-      <div className="relative aspect-video w-full bg-black overflow-hidden flex-1">
+      {/* Top Overlay Bar in Fullscreen (Title + Exit Fullscreen) */}
+      {isFullscreen && (
+        <div
+          className={`absolute top-0 inset-x-0 z-40 bg-gradient-to-b from-black/90 via-black/50 to-transparent p-3.5 sm:p-5 flex items-center justify-between transition-opacity duration-300 ${
+            showControls ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+          }`}
+          style={{ paddingTop: "max(env(safe-area-inset-top, 12px), 12px)" }}
+        >
+          <div className="flex items-center gap-2 max-w-[70%]">
+            <span className="w-2.5 h-2.5 rounded-full bg-purple-500 animate-pulse" />
+            <h3 className="text-xs sm:text-sm font-bold text-white truncate">{title}</h3>
+          </div>
+
+          <button
+            onClick={toggleFullscreen}
+            className="px-3 py-1.5 rounded-xl bg-slate-900/90 hover:bg-purple-600 border border-slate-700 hover:border-purple-400 text-white text-xs font-bold transition-all shadow-xl flex items-center gap-1.5 cursor-pointer backdrop-blur-md"
+            title="Exit Fullscreen"
+          >
+            <Minimize2 className="w-4 h-4 text-purple-300" />
+            <span className="text-[11px] sm:text-xs">Exit Fullscreen</span>
+          </button>
+        </div>
+      )}
+
+      {/* 1. MAIN VIDEO VIEWPORT (Expands to full height & width in portrait/landscape fullscreen) */}
+      <div
+        className={`relative w-full bg-black overflow-hidden flex-1 flex items-center justify-center min-h-0 ${
+          isFullscreen ? "h-full max-h-full" : "aspect-video"
+        }`}
+      >
         {hasError ? (
           <div className="absolute inset-0 bg-slate-950 flex flex-col items-center justify-center p-6 text-center z-10 space-y-3">
             <AlertCircle className="w-10 h-10 text-amber-400" />
@@ -285,13 +417,14 @@ export function UniversalVideoPlayer({
             </div>
           </div>
         ) : parsed.isIframe ? (
-          <div className="w-full h-full relative overflow-hidden bg-black">
+          <div className={`w-full h-full relative overflow-hidden bg-black flex items-center justify-center ${isFullscreen ? "max-h-full aspect-video sm:aspect-auto" : ""}`}>
             <iframe
               ref={iframeRef}
               src={parsed.embedUrl}
               title={title}
               className="w-full h-full border-0 absolute inset-0 bg-black"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+              allowFullScreen
               onError={() => setHasError(true)}
             />
           </div>
@@ -301,6 +434,8 @@ export function UniversalVideoPlayer({
             src={parsed.embedUrl}
             poster={poster}
             autoPlay={autoPlay}
+            playsInline
+            webkit-playsinline="true"
             onTimeUpdate={() => {
               if (videoRef.current) {
                 setCurrentTime(Math.floor(videoRef.current.currentTime));
@@ -313,7 +448,7 @@ export function UniversalVideoPlayer({
             }}
             onPlay={() => setIsPlaying(true)}
             onPause={() => setIsPlaying(false)}
-            className="w-full h-full object-contain bg-black"
+            className="w-full h-full object-contain bg-black max-h-full"
             onError={() => setHasError(true)}
           />
         )}
@@ -329,19 +464,30 @@ export function UniversalVideoPlayer({
           </button>
         )}
 
-        {/* Floating Quick Fullscreen Button on Top-Right Corner */}
-        <button
-          onClick={toggleFullscreen}
-          className="absolute top-3 right-3 z-30 px-3 py-1.5 rounded-xl bg-black/80 hover:bg-purple-600 border border-slate-700 hover:border-purple-400 text-white text-xs font-bold transition-all shadow-xl flex items-center gap-1.5 cursor-pointer backdrop-blur-md"
-          title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
-        >
-          {isFullscreen ? <Minimize2 className="w-4 h-4 text-purple-300" /> : <Maximize2 className="w-4 h-4 text-purple-300" />}
-          <span>{isFullscreen ? "Exit Fullscreen" : "Fullscreen"}</span>
-        </button>
+        {/* Floating Quick Fullscreen Button on Top-Right Corner (when not in fullscreen) */}
+        {!isFullscreen && (
+          <button
+            onClick={toggleFullscreen}
+            className="absolute top-3 right-3 z-30 px-3 py-1.5 rounded-xl bg-black/80 hover:bg-purple-600 border border-slate-700 hover:border-purple-400 text-white text-xs font-bold transition-all shadow-xl flex items-center gap-1.5 cursor-pointer backdrop-blur-md"
+            title="Fullscreen"
+          >
+            <Maximize2 className="w-4 h-4 text-purple-300" />
+            <span>Fullscreen</span>
+          </button>
+        )}
       </div>
 
-      {/* 2. ALWAYS-VISIBLE EDUCORE CONTROLLER BAR (Sound, Play/Pause, Seek, Speed, Fullscreen) */}
-      <div className="w-full bg-slate-950/95 border-t border-slate-800/90 px-3 sm:px-5 py-2.5 space-y-2 z-30 relative">
+      {/* 2. ALWAYS-VISIBLE / AUTO-HIDING EDUCORE CONTROLLER BAR */}
+      <div
+        className={`w-full bg-slate-950/95 border-t border-slate-800/90 px-3 sm:px-5 py-2.5 space-y-2 z-30 relative transition-all duration-300 ${
+          isFullscreen && !showControls ? "opacity-0 pointer-events-none translate-y-4" : "opacity-100 pointer-events-auto translate-y-0"
+        }`}
+        style={{
+          paddingBottom: isFullscreen ? "max(env(safe-area-inset-bottom, 12px), 12px)" : undefined,
+          paddingLeft: isFullscreen ? "max(env(safe-area-inset-left, 12px), 12px)" : undefined,
+          paddingRight: isFullscreen ? "max(env(safe-area-inset-right, 12px), 12px)" : undefined,
+        }}
+      >
         {/* Progress / Seek Slider */}
         <div className="flex items-center gap-2">
           <input

@@ -116,13 +116,106 @@ export const LiveClassroomPlayer: React.FC<LiveClassroomPlayerProps> = ({
     }
   }, [pipStream]);
 
-  // Handle Fullscreen Toggle
+  // Track Fullscreen state across standard & vendor-prefixed browser APIs
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const doc = document as any;
+      const isNativeFs = Boolean(
+        doc.fullscreenElement ||
+        doc.webkitFullscreenElement ||
+        doc.mozFullScreenElement ||
+        doc.msFullscreenElement
+      );
+      if (!isNativeFs && isFullscreen) {
+        setIsFullscreen(false);
+      } else if (isNativeFs) {
+        setIsFullscreen(true);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    document.addEventListener("mozfullscreenchange", handleFullscreenChange);
+    document.addEventListener("MSFullscreenChange", handleFullscreenChange);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("mozfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("MSFullscreenChange", handleFullscreenChange);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isFullscreen]);
+
+  // Lock body scroll during fullscreen
+  useEffect(() => {
+    if (isFullscreen) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [isFullscreen]);
+
+  // Handle Fullscreen Toggle with cross-browser and iOS Mobile Fallback
   const toggleFullscreen = () => {
-    if (!containerRef.current) return;
-    if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
+    const doc = document as any;
+    const container = containerRef.current as any;
+    const isCurrentlyFullscreen = Boolean(
+      doc.fullscreenElement ||
+      doc.webkitFullscreenElement ||
+      doc.mozFullScreenElement ||
+      doc.msFullscreenElement ||
+      isFullscreen
+    );
+
+    if (!isCurrentlyFullscreen) {
+      const requestFs =
+        container?.requestFullscreen ||
+        container?.webkitRequestFullscreen ||
+        container?.mozRequestFullScreen ||
+        container?.msRequestFullscreen;
+
+      if (requestFs) {
+        try {
+          const promise = requestFs.call(container);
+          if (promise && typeof promise.then === "function") {
+            promise.then(() => setIsFullscreen(true)).catch(() => {
+              setIsFullscreen(true);
+            });
+          } else {
+            setIsFullscreen(true);
+          }
+        } catch {
+          setIsFullscreen(true);
+        }
+      } else {
+        setIsFullscreen(true);
+      }
     } else {
-      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
+      const exitFs =
+        doc.exitFullscreen ||
+        doc.webkitExitFullscreen ||
+        doc.mozCancelFullScreen ||
+        doc.msExitFullscreen;
+
+      if (exitFs && (doc.fullscreenElement || doc.webkitFullscreenElement)) {
+        try {
+          const promise = exitFs.call(doc);
+          if (promise && typeof promise.then === "function") {
+            promise.catch(() => {});
+          }
+        } catch {}
+      }
+      setIsFullscreen(false);
     }
   };
 
@@ -147,14 +240,20 @@ export const LiveClassroomPlayer: React.FC<LiveClassroomPlayerProps> = ({
     <div
       ref={containerRef}
       onMouseMove={handleMouseMove}
+      onTouchStart={handleMouseMove}
       id="live-classroom-container"
-      className="relative w-full h-full bg-[#05070e] rounded-2xl overflow-hidden border border-purple-500/30 flex flex-col justify-between shadow-2xl group select-none"
+      className={`select-none flex flex-col justify-between transition-all duration-200 ${
+        isFullscreen
+          ? "fixed inset-0 z-[999999] w-screen h-[100dvh] h-screen m-0 p-0 rounded-none border-none bg-[#05070e] overflow-hidden"
+          : "relative w-full h-full bg-[#05070e] rounded-2xl overflow-hidden border border-purple-500/30 shadow-2xl group"
+      }`}
     >
       {/* 1. TOP STATUS BAR OVERLAY */}
       <div
         className={`absolute top-3 left-3 right-3 z-30 flex items-center justify-between transition-opacity duration-300 pointer-events-none ${
           showControls ? "opacity-100" : "opacity-0"
         }`}
+        style={{ paddingTop: isFullscreen ? "max(env(safe-area-inset-top, 0px), 0px)" : undefined }}
       >
         {/* Live Broadcast Badge */}
         <div className="flex items-center gap-2 pointer-events-auto bg-slate-950/80 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-rose-500/40 shadow-xl shadow-rose-950/30">
@@ -269,6 +368,7 @@ export const LiveClassroomPlayer: React.FC<LiveClassroomPlayerProps> = ({
         className={`absolute bottom-3 left-1/2 -translate-x-1/2 z-30 transition-all duration-300 w-auto max-w-[95%] ${
           showControls ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none"
         }`}
+        style={{ bottom: isFullscreen ? "max(env(safe-area-inset-bottom, 12px), 12px)" : undefined }}
       >
         <div className="bg-slate-950/85 backdrop-blur-xl border border-purple-500/30 rounded-2xl sm:rounded-full px-4 py-2.5 flex items-center justify-center gap-2 sm:gap-3 shadow-2xl shadow-black/80">
           {/* Microphone Toggle with Volume Bar */}
