@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   BookOpen,
   Play,
@@ -26,6 +27,8 @@ import {
   ChevronRight,
   ShieldCheck,
   Zap,
+  Radio,
+  Video,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { API_BASE_URL, CourseType } from "@/lib/api";
@@ -33,33 +36,66 @@ import { StudentCharts } from "@/components/charts/StudentCharts";
 import { GamificationWidget } from "@/components/gamification/GamificationWidget";
 import { EduCoreLoader } from "@/components/EduCoreLoader";
 
-// Calculate Letter Grade and CGPA on 4.00 Scale from Percentage
+// Calculate Letter Grade and CGPA on Standard 4.00 Scale from Percentage / Marks
 function calculateGradeAndGPA(percentage: number) {
-  if (percentage >= 90) return { grade: "A+", gpa: 4.00, color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30" };
-  if (percentage >= 85) return { grade: "A", gpa: 3.75, color: "text-purple-400 bg-purple-500/10 border-purple-500/30" };
-  if (percentage >= 80) return { grade: "A-", gpa: 3.50, color: "text-blue-400 bg-blue-500/10 border-blue-500/30" };
-  if (percentage >= 75) return { grade: "B+", gpa: 3.25, color: "text-cyan-400 bg-cyan-500/10 border-cyan-500/30" };
-  if (percentage >= 70) return { grade: "B", gpa: 3.00, color: "text-amber-400 bg-amber-500/10 border-amber-500/30" };
-  if (percentage >= 65) return { grade: "B-", gpa: 2.75, color: "text-amber-500 bg-amber-500/10 border-amber-500/30" };
-  if (percentage >= 60) return { grade: "C+", gpa: 2.50, color: "text-rose-400 bg-rose-500/10 border-rose-500/30" };
-  if (percentage >= 50) return { grade: "C", gpa: 2.00, color: "text-rose-500 bg-rose-500/10 border-rose-500/30" };
+  if (percentage >= 80) return { grade: "A+", gpa: 4.00, color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30" };
+  if (percentage >= 75) return { grade: "A", gpa: 3.75, color: "text-purple-400 bg-purple-500/10 border-purple-500/30" };
+  if (percentage >= 70) return { grade: "A-", gpa: 3.50, color: "text-blue-400 bg-blue-500/10 border-blue-500/30" };
+  if (percentage >= 65) return { grade: "B+", gpa: 3.25, color: "text-cyan-400 bg-cyan-500/10 border-cyan-500/30" };
+  if (percentage >= 60) return { grade: "B", gpa: 3.00, color: "text-amber-400 bg-amber-500/10 border-amber-500/30" };
+  if (percentage >= 55) return { grade: "B-", gpa: 2.75, color: "text-amber-500 bg-amber-500/10 border-amber-500/30" };
+  if (percentage >= 50) return { grade: "C+", gpa: 2.50, color: "text-orange-400 bg-orange-500/10 border-orange-500/30" };
+  if (percentage >= 45) return { grade: "C", gpa: 2.25, color: "text-rose-400 bg-rose-500/10 border-rose-500/30" };
+  if (percentage >= 40) return { grade: "D", gpa: 2.00, color: "text-rose-500 bg-rose-500/10 border-rose-500/30" };
   return { grade: "F", gpa: 0.00, color: "text-red-500 bg-red-500/10 border-red-500/30" };
 }
 
-export default function StudentDashboard() {
-  const { user } = useAuth();
+
+function StudentDashboardContent() {
+  const searchParams = useSearchParams();
+  const tabParam = searchParams?.get("tab");
+  const { user, token } = useAuth();
   const [courses, setCourses] = useState<CourseType[]>([]);
   const [quizSubmissions, setQuizSubmissions] = useState<any[]>([]);
   const [assignmentSubmissions, setAssignmentSubmissions] = useState<any[]>([]);
+  const [liveClasses, setLiveClasses] = useState<any[]>([]);
   const [userProgressMap, setUserProgressMap] = useState<Record<string, string[]>>({});
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"courses" | "grades" | "quizzes" | "assignments" | "certificates">("courses");
+  const [activeTab, setActiveTab] = useState<"courses" | "liveClasses" | "grades" | "quizzes" | "assignments" | "certificates">(
+    tabParam && ["courses", "liveClasses", "grades", "quizzes", "assignments", "certificates"].includes(tabParam)
+      ? (tabParam as any)
+      : "courses"
+  );
+
+  // Sync tab with URL search parameter
+  useEffect(() => {
+    if (
+      tabParam &&
+      ["courses", "liveClasses", "grades", "quizzes", "assignments", "certificates"].includes(tabParam)
+    ) {
+      setActiveTab(tabParam as any);
+    }
+  }, [tabParam]);
+
+  const handleTabChange = (tab: "courses" | "liveClasses" | "grades" | "quizzes" | "assignments" | "certificates") => {
+    setActiveTab(tab);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", tab);
+      window.history.replaceState(null, "", url.toString());
+    }
+  };
 
   // Load Real Courses, Progress, Quizzes & Assignments from Backend & Storage
   useEffect(() => {
     const fetchDashboardData = async () => {
       setIsLoading(true);
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const activeToken =
+        token ||
+        (typeof window !== "undefined"
+          ? localStorage.getItem("educore_token") || localStorage.getItem("token")
+          : null);
+
 
       try {
         // 1. Fetch Courses
@@ -142,11 +178,28 @@ export default function StudentDashboard() {
         }
         setAssignmentSubmissions(allAssignments);
 
+        // 5. Fetch Live Classes for Student
+        try {
+          const liveRes = await fetch(`${API_BASE_URL}/live-classes/my/classes?t=${Date.now()}`, {
+            headers: {
+              ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
+            },
+          });
+          const liveData = await liveRes.json();
+          if (liveData.success && Array.isArray(liveData.liveClasses)) {
+            setLiveClasses(liveData.liveClasses);
+          }
+        } catch (e) {
+          console.warn("Live classes fetch error:", e);
+        }
+
       } catch (err) {
         console.error("Failed to load student dashboard data:", err);
       } finally {
         setIsLoading(false);
       }
+
+
     };
 
     fetchDashboardData();
@@ -169,12 +222,34 @@ export default function StudentDashboard() {
     const progressPercentage = Math.min(100, Math.round((completedLessonsCount / Math.max(1, totalLessons)) * 100));
     const isCompleted = progressPercentage >= 100;
 
-    // Find current active lecture to resume
-    const activeLessonIndex = Math.min(Math.max(0, allLessons.length - 1), completedLessonsCount);
-    const currentActiveLesson = allLessons[activeLessonIndex] || {
-      title: "Lecture 1: Welcome & Course Setup",
-      sectionTitle: "Section 1",
-    };
+    // Find current active lecture to resume (check saved last active lesson, or first uncompleted lesson)
+    let currentActiveLesson: any = null;
+    try {
+      const savedLastId = localStorage.getItem(`educore_last_lesson_${courseKey}`);
+      if (savedLastId) {
+        currentActiveLesson = allLessons.find(
+          (l) => l._id === savedLastId || l.id === savedLastId || String(l._id) === savedLastId || l.title === savedLastId
+        );
+      }
+    } catch (e) {}
+
+    if (!currentActiveLesson) {
+      currentActiveLesson = allLessons.find((l) => {
+        const ids = [l._id, l.id, l.slug, l.title, String(l._id), String(l.id)].filter(Boolean);
+        return !ids.some((id) => storedCompleted.includes(id));
+      });
+    }
+
+    if (!currentActiveLesson) {
+      const activeLessonIndex = Math.min(Math.max(0, allLessons.length - 1), completedLessonsCount);
+      currentActiveLesson = allLessons[activeLessonIndex] || allLessons[0] || {
+        title: "Lecture 1: Welcome & Course Setup",
+        sectionTitle: "Section 1",
+      };
+    }
+
+    const activeLessonParam = currentActiveLesson?._id || currentActiveLesson?.id || currentActiveLesson?.slug || "";
+    const resumeUrl = `/student/learn/${course.slug || course._id}${activeLessonParam ? `?lessonId=${encodeURIComponent(activeLessonParam)}` : ""}`;
 
     // Course Quizzes
     const courseQuizzes = quizSubmissions.filter(
@@ -223,6 +298,7 @@ export default function StudentDashboard() {
       progressPercentage,
       isCompleted,
       currentActiveLesson,
+      resumeUrl,
       quizScore,
       hasQuizzes,
       assignmentScore,
@@ -266,9 +342,11 @@ export default function StudentDashboard() {
     ? Math.round(gradedCourses.reduce((acc, c) => acc + c.totalAverageMarks, 0) / gradedCourses.length)
     : 0;
   const overallGrade = gradedCourses.length > 0 ? calculateGradeAndGPA(overallAvgMarks).grade : "—";
-
   // Dynamic Total Earned XP
-  const totalXP = (totalCompletedLessons * 50) + (passedQuizzesCount * 100) + (totalAssignmentsSubmitted * 150);
+  const totalXP = totalCompletedLessons * 50 + passedQuizzesCount * 100 + gradedAssignmentsCount * 150;
+
+  // Active Live Session check
+  const activeLiveSession = liveClasses.find((l) => l.status === "live");
 
   // Resume First In-Progress Course
   const activeCourse = enrolledCoursesData.find((c) => !c.isCompleted) || enrolledCoursesData[0];
@@ -277,6 +355,42 @@ export default function StudentDashboard() {
     <div className="min-h-screen bg-[#070a12] text-slate-100">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-20 space-y-8">
         
+        {/* 🔴 ACTIVE LIVE CLASS HAPPENING NOW BANNER */}
+        {activeLiveSession && (
+          <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-rose-950/90 via-slate-900 to-purple-950/90 border border-rose-500/50 shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in ring-1 ring-rose-500/30">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shrink-0 shadow-lg shadow-rose-900/40">
+                <Radio className="w-6 h-6 animate-pulse text-rose-400" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center gap-1.5 text-[10px] font-black uppercase text-rose-300 bg-rose-500/20 px-2.5 py-0.5 rounded-full border border-rose-500/40">
+                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                    <span>LIVE CLASSROOM ACTIVE</span>
+                  </span>
+                  <span className="text-xs text-purple-300 font-bold hidden sm:inline">
+                    {(activeLiveSession.course as any)?.title || "Enrolled Course"}
+                  </span>
+                </div>
+                <h3 className="text-base font-black text-white mt-1">
+                  {activeLiveSession.title}
+                </h3>
+                <p className="text-xs text-slate-300">
+                  Instructor: <strong className="text-purple-300">{activeLiveSession.teacherName || "Instructor"}</strong> • Live HD Audio, Video & Real-Time Q&A
+                </p>
+              </div>
+            </div>
+
+            <Link
+              href={`/live/${activeLiveSession._id}`}
+              className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-gradient-to-r from-rose-600 to-purple-600 hover:from-rose-500 hover:to-purple-500 text-white font-black text-xs flex items-center justify-center gap-2 shadow-xl shadow-rose-600/30 hover:scale-105 transition-all shrink-0 cursor-pointer"
+            >
+              <Radio className="w-4 h-4" />
+              <span>Join Live Classroom Now</span>
+            </Link>
+          </div>
+        )}
+
         {/* 1. HERO HEADER WITH STUDENT GREETING & RESUME SHORTCUT */}
         <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-slate-800 bg-gradient-to-r from-slate-950 via-purple-950/40 to-slate-950 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-2xl">
           <div className="space-y-2">
@@ -299,7 +413,7 @@ export default function StudentDashboard() {
           {activeCourse ? (
             <div className="shrink-0 w-full md:w-auto">
               <Link
-                href={`/student/learn/${activeCourse.slug || activeCourse._id}`}
+                href={activeCourse.resumeUrl || `/student/learn/${activeCourse.slug || activeCourse._id}`}
                 className="w-full sm:w-auto px-6 py-3.5 rounded-2xl text-xs font-bold text-white gradient-button flex items-center justify-center gap-2.5 shadow-xl shadow-purple-600/30 hover:scale-105 transition-all"
               >
                 <Play className="w-4 h-4 fill-white" />
@@ -424,29 +538,42 @@ export default function StudentDashboard() {
           </div>
         </div>
 
-        {/* 3. MAIN DASHBOARD CONTENT AREA */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        {/* 3. MAIN DASHBOARD CONTENT AREA - FULL WIDTH TABS */}
+        <div className="space-y-6">
           
-          {/* LEFT 8 COLUMNS: INTERACTIVE TABS (Courses, Transcripts, Quizzes, Assignments, Certificates) */}
-          <div className="lg:col-span-8 space-y-6">
-            
-            {/* Tab Navigation Header */}
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3 overflow-x-auto gap-2">
-              <div className="flex items-center gap-2">
+          {/* Tab Navigation Header */}
+          <div className="flex flex-wrap items-center justify-between border-b border-slate-800 pb-3 gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => handleTabChange("courses")}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                  activeTab === "courses"
+                    ? "bg-purple-600 text-white shadow-lg shadow-purple-600/30"
+                    : "bg-slate-900 text-slate-400 hover:text-white border border-slate-800"
+                }`}
+              >
+                <BookOpen className="w-4 h-4" />
+                <span>My Courses ({totalEnrolled})</span>
+              </button>
+
+
                 <button
-                  onClick={() => setActiveTab("courses")}
+                  onClick={() => handleTabChange("liveClasses")}
                   className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
-                    activeTab === "courses"
+                    activeTab === "liveClasses"
                       ? "bg-purple-600 text-white shadow-lg shadow-purple-600/30"
                       : "bg-slate-900 text-slate-400 hover:text-white border border-slate-800"
                   }`}
                 >
-                  <BookOpen className="w-3.5 h-3.5" />
-                  <span>My Courses ({totalEnrolled})</span>
+                  <Radio className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Live Classes ({liveClasses.length})</span>
+                  {activeLiveSession && (
+                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping ml-0.5" />
+                  )}
                 </button>
 
                 <button
-                  onClick={() => setActiveTab("grades")}
+                  onClick={() => handleTabChange("grades")}
                   className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                     activeTab === "grades"
                       ? "bg-purple-600 text-white shadow-lg shadow-purple-600/30"
@@ -457,8 +584,9 @@ export default function StudentDashboard() {
                   <span>Transcript (CGPA)</span>
                 </button>
 
+
                 <button
-                  onClick={() => setActiveTab("quizzes")}
+                  onClick={() => handleTabChange("quizzes")}
                   className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                     activeTab === "quizzes"
                       ? "bg-purple-600 text-white shadow-lg shadow-purple-600/30"
@@ -470,7 +598,7 @@ export default function StudentDashboard() {
                 </button>
 
                 <button
-                  onClick={() => setActiveTab("assignments")}
+                  onClick={() => handleTabChange("assignments")}
                   className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                     activeTab === "assignments"
                       ? "bg-purple-600 text-white shadow-lg shadow-purple-600/30"
@@ -482,7 +610,7 @@ export default function StudentDashboard() {
                 </button>
 
                 <button
-                  onClick={() => setActiveTab("certificates")}
+                  onClick={() => handleTabChange("certificates")}
                   className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                     activeTab === "certificates"
                       ? "bg-purple-600 text-white shadow-lg shadow-purple-600/30"
@@ -525,30 +653,34 @@ export default function StudentDashboard() {
                         {/* Course Header */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                           <div className="flex items-start gap-4">
-                            <img
-                              src={course.thumbnail}
-                              alt={course.title}
-                              className="w-24 h-16 rounded-2xl object-cover border border-slate-800 shrink-0 group-hover:scale-105 transition-transform"
-                            />
+                            <Link href={course.resumeUrl || `/student/learn/${course.slug || course._id}`}>
+                              <img
+                                src={course.thumbnail}
+                                alt={course.title}
+                                className="w-24 h-16 rounded-2xl object-cover border border-slate-800 shrink-0 group-hover:scale-105 transition-transform cursor-pointer"
+                              />
+                            </Link>
                             <div className="flex-1 min-w-0">
                               <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider">
                                 {course.category || "General"}
                               </span>
-                              <h3 className="text-sm font-bold text-white line-clamp-1 mt-0.5">
-                                {course.title}
-                              </h3>
+                              <Link href={course.resumeUrl || `/student/learn/${course.slug || course._id}`}>
+                                <h3 className="text-sm font-bold text-white line-clamp-1 mt-0.5 hover:text-purple-300 transition-colors cursor-pointer">
+                                  {course.title}
+                                </h3>
+                              </Link>
                               <p className="text-xs text-slate-400 mt-0.5">By {teacherName}</p>
                             </div>
                           </div>
 
                           <div className="flex items-center gap-2 self-start sm:self-center">
-                            <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${
+                            <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
                               course.isGraded
                                 ? course.gradeColor
                                 : "text-slate-400 bg-slate-900 border-slate-800"
                             }`}>
                               {course.isGraded
-                                ? `Grade ${course.courseGrade} (${course.courseGPA} GPA)`
+                                ? `Grade ${course.courseGrade} (${course.courseGPA.toFixed(2)} GPA • ${course.totalAverageMarks}%)`
                                 : course.isCompleted
                                 ? "Completed (Pending Grading)"
                                 : "In Progress"}
@@ -581,26 +713,21 @@ export default function StudentDashboard() {
                             </span>
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
-                            <span className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${
-                              course.quizScore !== null
-                                ? "bg-amber-950/30 border-amber-500/30 text-amber-300"
-                                : "bg-slate-900 border-slate-800 text-slate-400"
-                            }`}>
-                              {course.quizScore !== null ? `Quiz: ${course.quizScore}%` : "Quiz: Not Taken"}
-                            </span>
-                            <span className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${
-                              course.assignmentScore !== null
-                                ? "bg-emerald-950/30 border-emerald-500/30 text-emerald-300"
-                                : "bg-slate-900 border-slate-800 text-slate-400"
-                            }`}>
-                              {course.assignmentScore !== null ? `Assign: ${course.assignmentScore}/100` : "Assign: Not Submitted"}
-                            </span>
+                            {course.isGraded && (
+                              <div className="text-right">
+                                <span className="text-[11px] text-slate-400 block">Course Marks:</span>
+                                <span className="font-mono font-bold text-emerald-400">
+                                  {course.totalAverageMarks}/100 ({course.courseGrade})
+                                </span>
+                              </div>
+                            )}
+
                             <Link
-                              href={`/student/learn/${course.slug || course._id}`}
-                              className="px-4 py-1.5 rounded-xl text-xs font-bold text-white gradient-button flex items-center gap-1 shadow-md shadow-purple-600/30 hover:scale-105 transition-all"
+                              href={course.resumeUrl || `/student/learn/${course.slug || course._id}`}
+                              className="px-4 py-2 rounded-xl text-xs font-bold text-white gradient-button flex items-center gap-1.5 shadow-md shadow-purple-600/20 hover:scale-105 transition-all cursor-pointer"
                             >
-                              <span>{course.isCompleted ? "Review" : course.completedLessonsCount > 0 ? "Resume" : "Start"}</span>
-                              <ArrowRight className="w-3.5 h-3.5" />
+                              <Play className="w-3.5 h-3.5 fill-white" />
+                              <span>Resume</span>
                             </Link>
                           </div>
                         </div>
@@ -608,10 +735,132 @@ export default function StudentDashboard() {
                     );
                   })
                 ) : (
-                  <div className="glass-panel p-10 rounded-3xl border border-slate-800 text-center space-y-3">
-                    <BookOpen className="w-10 h-10 text-slate-600 mx-auto" />
-                    <p className="text-sm font-bold text-white">No courses in progress</p>
+                  <div className="glass-panel p-12 rounded-3xl text-center border border-slate-800">
+                    <BookOpen className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+                    <h3 className="text-base font-bold text-white mb-1">No Enrolled Courses Yet</h3>
                     <p className="text-xs text-slate-400">Enroll in top courses from the catalog to start learning.</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB: LIVE INTERACTIVE CLASSES */}
+            {activeTab === "liveClasses" && (
+              <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-slate-800 space-y-6 shadow-xl">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                  <div>
+                    <h2 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                      <Radio className="w-5 h-5 text-rose-500 animate-pulse" />
+                      <span>Live Interactive Classes</span>
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Join real-time video lectures, ask questions live, and collaborate with your instructors.
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-rose-950/40 border border-rose-500/30 text-center sm:text-right">
+                    <span className="text-[10px] uppercase font-bold text-rose-400 block">Total Live Sessions</span>
+                    <span className="text-2xl font-black text-white">{liveClasses.length}</span>
+                  </div>
+                </div>
+
+                {liveClasses.length === 0 ? (
+                  <div className="glass-panel p-12 rounded-3xl text-center border border-slate-800/80 space-y-3">
+                    <Radio className="w-12 h-12 text-slate-600 mx-auto mb-2" />
+                    <h3 className="text-base font-bold text-white">No Live Classes Scheduled Right Now</h3>
+                    <p className="text-xs text-slate-400 max-w-md mx-auto">
+                      Your course instructors will schedule live classes here. You will automatically receive an email alert whenever a live session is announced!
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {liveClasses.map((session) => {
+                      const isLive = session.status === "live";
+                      const isCompleted = session.status === "completed";
+                      const courseTitle = (session.course as any)?.title || "Enrolled Course";
+                      const dateStr = new Date(session.scheduledStartTime).toLocaleString(undefined, {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      });
+
+                      return (
+                        <div
+                          key={session._id}
+                          className={`p-5 rounded-2xl border transition-all ${
+                            isLive
+                              ? "bg-slate-900/90 border-rose-500/50 shadow-xl shadow-rose-950/40 ring-1 ring-rose-500/30"
+                              : "bg-slate-950 border-slate-800 hover:border-purple-500/30"
+                          } space-y-4 flex flex-col justify-between`}
+                        >
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="px-2.5 py-0.5 rounded text-[10px] font-bold uppercase bg-purple-500/20 text-purple-300 border border-purple-500/30 truncate max-w-[180px]">
+                                {courseTitle}
+                              </span>
+                              {isLive ? (
+                                <span className="flex items-center gap-1 text-[10px] font-black uppercase text-rose-400 bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 rounded-full">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
+                                  <span>LIVE NOW</span>
+                                </span>
+                              ) : isCompleted ? (
+                                <span className="text-[10px] font-bold text-slate-500 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                                  COMPLETED
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+                                  UPCOMING
+                                </span>
+                              )}
+                            </div>
+
+                            <h4 className="text-sm font-bold text-white line-clamp-1">{session.title}</h4>
+                            <p className="text-xs text-slate-400 line-clamp-2">{session.description || "Interactive live session with audio, video, and collaborative QA."}</p>
+                          </div>
+
+                          <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 space-y-1.5 text-xs text-slate-300">
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-400 flex items-center gap-1.5">
+                                <Calendar className="w-3.5 h-3.5 text-purple-400" />
+                                <span>Time</span>
+                              </span>
+                              <span className="font-semibold text-white">{dateStr}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-400 flex items-center gap-1.5">
+                                <Clock className="w-3.5 h-3.5 text-blue-400" />
+                                <span>Duration</span>
+                              </span>
+                              <span className="font-semibold text-white">{session.durationMinutes} Mins</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-400 flex items-center gap-1.5">
+                                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>Instructor</span>
+                              </span>
+                              <span className="font-semibold text-purple-300">{session.teacherName || "Instructor"}</span>
+                            </div>
+                          </div>
+
+                          <div className="pt-1">
+                            <Link
+                              href={`/live/${session._id}`}
+                              className={`w-full py-2.5 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 shadow-md transition-all ${
+                                isLive
+                                  ? "bg-rose-600 hover:bg-rose-500 shadow-rose-600/40 animate-pulse"
+                                  : isCompleted
+                                  ? "bg-slate-800 text-slate-400 hover:text-white"
+                                  : "gradient-button shadow-purple-600/20 hover:scale-[1.02]"
+                              }`}
+                            >
+                              <Radio className="w-3.5 h-3.5" />
+                              <span>{isLive ? "🔴 Join Live Classroom Now" : isCompleted ? "View Past Room" : "Join Session Room"}</span>
+                            </Link>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -620,6 +869,7 @@ export default function StudentDashboard() {
             {/* TAB 2: ACADEMIC TRANSCRIPT & CGPA REPORT SHEET */}
             {activeTab === "grades" && (
               <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-slate-800 space-y-5 shadow-xl">
+
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
                   <div>
                     <h2 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
@@ -627,13 +877,28 @@ export default function StudentDashboard() {
                       <span>Academic Transcript & Grade Sheet</span>
                     </h2>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      Cumulative Grade Point Average (CGPA) calculated from graded quizzes and verified assignments.
+                      Cumulative Grade Point Average (CGPA) calculated from graded quizzes and verified assignments on a standard 4.00 scale.
                     </p>
                   </div>
                   <div className="p-3 rounded-2xl bg-purple-950/60 border border-purple-500/40 text-center sm:text-right">
                     <span className="text-[10px] uppercase font-bold text-purple-300 block">Overall CGPA</span>
                     <span className="text-2xl font-black text-white">{overallCGPA}</span>
                     <span className="text-xs text-purple-400 font-bold ml-1">/ 4.00</span>
+                  </div>
+                </div>
+
+                {/* Grading Scale Legend */}
+                <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800/80 text-[11px] text-slate-300 flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-bold text-purple-300">CGPA Grading Scale:</span>
+                  <div className="flex flex-wrap gap-2 text-[10px]">
+                    <span className="bg-emerald-950/60 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded font-mono">80%+: A+ (4.00)</span>
+                    <span className="bg-purple-950/60 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded font-mono">75-79%: A (3.75)</span>
+                    <span className="bg-blue-950/60 text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded font-mono">70-74%: A- (3.50)</span>
+                    <span className="bg-cyan-950/60 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded font-mono">65-69%: B+ (3.25)</span>
+                    <span className="bg-amber-950/60 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded font-mono">60-64%: B (3.00)</span>
+                    <span className="bg-orange-950/60 text-orange-300 border border-orange-500/30 px-2 py-0.5 rounded font-mono">50-59%: C/C+ (2.25-2.50)</span>
+                    <span className="bg-rose-950/60 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded font-mono">40-49%: D (2.00)</span>
+                    <span className="bg-red-950/60 text-red-400 border border-red-500/30 px-2 py-0.5 rounded font-mono">&lt;40%: F (0.00)</span>
                   </div>
                 </div>
 
@@ -822,28 +1087,43 @@ export default function StudentDashboard() {
                 )}
               </div>
             )}
-
-            {/* Recharts Learning Velocity - Placed in Left Main Column */}
-            <StudentCharts totalCompletedLessons={totalCompletedLessons} />
-
-          </div>
-
-          {/* RIGHT 4 COLUMNS: GAMIFICATION XP, MASTERY & LEADERBOARD */}
-          <div className="lg:col-span-4 space-y-6">
-            {/* Gamification Level & Streak Card with 100% dynamic data */}
-            <GamificationWidget
-              totalXP={totalXP}
-              completedLessonsCount={totalCompletedLessons}
-              passedQuizzesCount={passedQuizzesCount}
-              submittedAssignmentsCount={totalAssignmentsSubmitted}
-              completedCoursesCount={completedCoursesCount}
-              user={user}
-            />
-          </div>
-
         </div>
+
+        {/* 4. LEARNING VELOCITY ANALYTICS GRAPH (FULL WIDTH) */}
+        <div className="w-full">
+          <StudentCharts totalCompletedLessons={totalCompletedLessons} />
+        </div>
+
+        {/* 5. GAMIFICATION & LEADERBOARD (MASTERY LEVEL 1 & WEEKLY RANKINGS) */}
+        <div className="w-full">
+          <GamificationWidget
+            totalXP={totalXP}
+            completedLessonsCount={totalCompletedLessons}
+            passedQuizzesCount={passedQuizzesCount}
+            submittedAssignmentsCount={totalAssignmentsSubmitted}
+            completedCoursesCount={completedCoursesCount}
+            user={user}
+          />
+        </div>
+
 
       </div>
     </div>
   );
 }
+
+export default function StudentDashboard() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+          <EduCoreLoader message="Loading student dashboard..." />
+        </div>
+      }
+    >
+      <StudentDashboardContent />
+    </Suspense>
+  );
+}
+
+

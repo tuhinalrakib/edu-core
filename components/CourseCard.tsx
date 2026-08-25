@@ -1,13 +1,41 @@
-import React from "react";
+"use client";
+
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { Star, Clock, BookOpen, Users, ArrowRight } from "lucide-react";
+import { Star, Clock, BookOpen, Users, ArrowRight, Play, CheckCircle } from "lucide-react";
 import { CourseType } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 
 interface CourseCardProps {
   course: CourseType;
 }
 
 export const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
+  const { user } = useAuth();
+  const [isEnrolled, setIsEnrolled] = useState(false);
+
+  useEffect(() => {
+    if (!user || user.role !== "student") {
+      setIsEnrolled(false);
+      return;
+    }
+
+    const courseKey = course.slug || course._id;
+    try {
+      const storedEnrolled: string[] = JSON.parse(localStorage.getItem("educore_enrolled_courses") || "[]");
+      const hasProgress = Boolean(localStorage.getItem(`educore_progress_${courseKey}`));
+      
+      if (
+        storedEnrolled.includes(courseKey) ||
+        storedEnrolled.includes(course._id) ||
+        (course.slug && storedEnrolled.includes(course.slug)) ||
+        hasProgress
+      ) {
+        setIsEnrolled(true);
+      }
+    } catch (e) {}
+  }, [user, course]);
+
   const isMongoId = (str: any) => typeof str === "string" && /^[0-9a-fA-F]{24}$/.test(str);
 
   const rawTeacherName =
@@ -36,10 +64,13 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
   const price = typeof course.price === "number" ? course.price : 0;
   const rating = typeof course.averageRating === "number" ? course.averageRating : 0;
   const reviews = typeof course.totalReviews === "number" ? course.totalReviews : 0;
-  const students = typeof course.totalStudents === "number" ? course.totalStudents : 0;
+  const rawStudents = typeof course.totalStudents === "number" ? course.totalStudents : 0;
+  const students = rawStudents > 0 ? rawStudents : isEnrolled ? 1 : 0;
+
+
 
   return (
-    <div className="glass-card rounded-2xl overflow-hidden flex flex-col group border border-slate-800/80 bg-slate-900/60">
+    <div className="glass-card rounded-2xl overflow-hidden flex flex-col group border border-slate-800/80 bg-slate-900/60 hover:border-purple-500/40 transition-all">
       {/* Thumbnail Container */}
       <div className="relative aspect-video overflow-hidden bg-slate-950">
         <img
@@ -50,11 +81,16 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
         <div className="absolute top-3 left-3 bg-purple-900/80 backdrop-blur-md text-purple-200 border border-purple-500/30 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full">
           {course.category || "General"}
         </div>
-        {course.discountPrice && (
+        {isEnrolled ? (
+          <div className="absolute top-3 right-3 bg-emerald-500/90 backdrop-blur-md text-slate-950 font-black text-[10px] uppercase px-2.5 py-1 rounded-md flex items-center gap-1 shadow-lg">
+            <CheckCircle className="w-3 h-3 text-slate-950" />
+            <span>Enrolled</span>
+          </div>
+        ) : course.discountPrice ? (
           <div className="absolute top-3 right-3 bg-emerald-500 text-slate-950 font-black text-[10px] uppercase px-2 py-0.5 rounded-md">
             Save ${(price - course.discountPrice).toFixed(0)}
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Body Content */}
@@ -77,7 +113,7 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
           </div>
 
           {/* Title */}
-          <Link href={`/courses/${course.slug || course._id}`}>
+          <Link href={isEnrolled ? `/student/learn/${course.slug || course._id}` : `/courses/${course.slug || course._id}`}>
             <h3 className="text-base font-bold text-slate-100 group-hover:text-purple-300 transition-colors line-clamp-2 leading-snug mb-2">
               {course.title}
             </h3>
@@ -108,25 +144,43 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
           </div>
 
           <div className="flex items-center justify-between">
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-lg font-black text-white">
-                {price === 0 ? "Free" : `$${course.discountPrice ? course.discountPrice.toFixed(2) : price.toFixed(2)}`}
-              </span>
-              {course.discountPrice && (
-                <span className="text-xs text-slate-500 line-through">${price.toFixed(2)}</span>
-              )}
-            </div>
+            {isEnrolled ? (
+              <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold">
+                <CheckCircle className="w-4 h-4" />
+                <span>Active Access</span>
+              </div>
+            ) : (
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-lg font-black text-white">
+                  {price === 0 ? "Free" : `$${course.discountPrice ? course.discountPrice.toFixed(2) : price.toFixed(2)}`}
+                </span>
+                {course.discountPrice && (
+                  <span className="text-xs text-slate-500 line-through">${price.toFixed(2)}</span>
+                )}
+              </div>
+            )}
 
-            <Link
-              href={`/courses/${course.slug || course._id}`}
-              className="inline-flex items-center gap-1 text-xs font-bold text-purple-400 hover:text-purple-300 group-hover:translate-x-1 transition-all"
-            >
-              <span>Enroll Now</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
+            {isEnrolled ? (
+              <Link
+                href={`/student/learn/${course.slug || course._id}`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600/30 border border-purple-500/40 text-xs font-bold text-purple-300 hover:bg-purple-600 hover:text-white transition-all shadow-md"
+              >
+                <Play className="w-3 h-3 fill-current" />
+                <span>Continue</span>
+              </Link>
+            ) : (
+              <Link
+                href={`/courses/${course.slug || course._id}`}
+                className="inline-flex items-center gap-1 text-xs font-bold text-purple-400 hover:text-purple-300 group-hover:translate-x-1 transition-all"
+              >
+                <span>Enroll Now</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            )}
           </div>
         </div>
       </div>
     </div>
   );
 };
+

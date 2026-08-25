@@ -13,13 +13,15 @@ import {
   Users,
   ShieldCheck,
   Globe,
-  Share2,
-  Heart,
   ChevronDown,
   ChevronUp,
-  Loader2,
   X,
   HelpCircle,
+  GraduationCap,
+  Sparkles,
+  ArrowRight,
+  Radio,
+  Calendar,
 } from "lucide-react";
 import { API_BASE_URL, CourseType } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -34,11 +36,18 @@ export default function CourseDetailsPage() {
 
   const [course, setCourse] = useState<CourseType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isEnrolled, setIsEnrolled] = useState(false);
+  const [completedLessons, setCompletedLessons] = useState<string[]>([]);
+  const [isEnrolling, setIsEnrolling] = useState(false);
+  const [courseLiveClasses, setCourseLiveClasses] = useState<any[]>([]);
+
 
   useEffect(() => {
     const fetchCourseDetail = async () => {
       setIsLoading(true);
       const targetId = params.courseId as string;
+
+      let loadedCourse: CourseType | null = null;
 
       // 1. Try fetching from backend API first with fresh data
       try {
@@ -48,33 +57,87 @@ export default function CourseDetailsPage() {
         });
         const data = await res.json();
         if (data.success && data.course) {
+          loadedCourse = data.course;
           setCourse(data.course);
-          setIsLoading(false);
-          return;
         }
       } catch (e) {
         console.warn("Backend course fetch error:", e);
       }
 
       // 2. Fallback to local storage created courses if offline
+      if (!loadedCourse) {
+        try {
+          const localCreated: CourseType[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
+          const foundLocal = localCreated.find((c) => c.slug === targetId || String(c._id) === targetId);
+          if (foundLocal) {
+            loadedCourse = foundLocal;
+            setCourse(foundLocal);
+          }
+        } catch (e) {}
+      }
+
+      // 3. Check student enrollment status
+      if (user && user.role === "student") {
+        let enrolled = false;
+        let completed: string[] = [];
+
+        // Check local storage records
+        try {
+          const storedEnrolled: string[] = JSON.parse(localStorage.getItem("educore_enrolled_courses") || "[]");
+          const localProgress = localStorage.getItem(`educore_progress_${targetId}`);
+          if (localProgress) {
+            completed = JSON.parse(localProgress);
+            enrolled = true;
+          }
+          if (
+            storedEnrolled.includes(targetId) ||
+            (loadedCourse && (storedEnrolled.includes(loadedCourse._id) || (loadedCourse.slug && storedEnrolled.includes(loadedCourse.slug))))
+          ) {
+            enrolled = true;
+          }
+        } catch (e) {}
+
+        // Check backend enrollment/progress if token available
+        const token = typeof window !== "undefined" ? (localStorage.getItem("token") || localStorage.getItem("educore_token")) : null;
+        if (token) {
+          try {
+            const pRes = await fetch(`${API_BASE_URL}/student/progress/${targetId}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            const pData = await pRes.json();
+            if (pData.success) {
+              if (pData.isEnrolled || (pData.progress?.completedLessons && pData.progress.completedLessons.length > 0)) {
+                enrolled = true;
+              }
+              if (pData.progress?.completedLessons) {
+                completed = Array.from(new Set([...completed, ...pData.progress.completedLessons]));
+              }
+            }
+          } catch (e) {}
+        }
+
+        setIsEnrolled(enrolled);
+        setCompletedLessons(completed);
+      } else {
+        setIsEnrolled(false);
+      }
+
+      // Fetch live interactive sessions for this course
       try {
-        const localCreated: CourseType[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
-        const foundLocal = localCreated.find((c) => c.slug === targetId || String(c._id) === targetId);
-        if (foundLocal) {
-          setCourse(foundLocal);
-          setIsLoading(false);
-          return;
+        const liveRes = await fetch(`${API_BASE_URL}/live-classes/course/${targetId}?t=${Date.now()}`);
+        const liveData = await liveRes.json();
+        if (liveData.success && Array.isArray(liveData.liveClasses)) {
+          setCourseLiveClasses(liveData.liveClasses);
         }
       } catch (e) {}
 
-      setCourse(null);
       setIsLoading(false);
     };
 
     if (params.courseId) {
       fetchCourseDetail();
     }
-  }, [params.courseId]);
+  }, [params.courseId, user]);
 
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
@@ -137,10 +200,17 @@ export default function CourseDetailsPage() {
   const sections = Array.isArray(course.sections) ? course.sections : [];
   const rating = typeof course.averageRating === "number" && course.averageRating > 0 ? course.averageRating : 0;
   const reviews = typeof course.totalReviews === "number" ? course.totalReviews : 0;
-  const students = typeof course.totalStudents === "number" ? course.totalStudents : 0;
+  const rawStudents = typeof course.totalStudents === "number" ? course.totalStudents : 0;
+  const students = rawStudents > 0 ? rawStudents : isEnrolled ? 1 : 0;
   const totalLessonsCount =
     course.totalLessons || sections.reduce((acc, s) => acc + (s.lessons?.length || 0), 0);
   const totalDuration = course.totalDurationMinutes || 0;
+
+  const progressPercentage = Math.min(
+    100,
+    Math.round((completedLessons.length / Math.max(1, totalLessonsCount)) * 100)
+  );
+
 
   const handleApplyCoupon = () => {
     if (couponCode.toUpperCase() === "WELCOME50") {
@@ -151,7 +221,7 @@ export default function CourseDetailsPage() {
     }
   };
 
-  const handleEnroll = () => {
+  const handleEnroll = async () => {
     if (!user) {
       Swal.fire({
         icon: "info",
@@ -182,21 +252,56 @@ export default function CourseDetailsPage() {
       return;
     }
 
-    // Student Enrolled!
-    Swal.fire({
-      icon: "success",
-      title: "Enrollment Successful! 🎉",
-      text: "You have enrolled in this course. Taking you to your learning player...",
-      timer: 1500,
-      showConfirmButton: false,
-      background: "#0f172a",
-      color: "#ffffff",
-    });
-    setTimeout(() => {
-      router.push(`/student/learn/${course?.slug || course?._id}`);
-    }, 1500);
-  };
+    setIsEnrolling(true);
 
+    try {
+      // 1. Update localStorage
+      const storedEnrolled: string[] = JSON.parse(localStorage.getItem("educore_enrolled_courses") || "[]");
+      const courseKey = course.slug || course._id;
+      if (!storedEnrolled.includes(courseKey)) {
+        storedEnrolled.push(courseKey);
+      }
+      if (course._id && !storedEnrolled.includes(course._id)) {
+        storedEnrolled.push(course._id);
+      }
+      localStorage.setItem("educore_enrolled_courses", JSON.stringify(storedEnrolled));
+
+      // 2. Call backend enrollment API if token exists
+      const token = localStorage.getItem("token") || localStorage.getItem("educore_token");
+      if (token) {
+        await fetch(`${API_BASE_URL}/student/enroll`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ courseId: course._id || course.slug }),
+        });
+      }
+
+      setIsEnrolled(true);
+
+      // Student Enrolled!
+      Swal.fire({
+        icon: "success",
+        title: "Enrollment Confirmed! 🎉",
+        text: "You are now enrolled in this course. Taking you to your course player...",
+        timer: 1500,
+        showConfirmButton: false,
+        background: "#0f172a",
+        color: "#ffffff",
+      });
+
+      setTimeout(() => {
+        router.push(`/student/learn/${course?.slug || course?._id}`);
+      }, 1500);
+    } catch (e) {
+      console.error("Enrollment error:", e);
+      router.push(`/student/learn/${course?.slug || course?._id}`);
+    } finally {
+      setIsEnrolling(false);
+    }
+  };
 
   return (
     <div className="min-h-screen py-10">
@@ -254,11 +359,39 @@ export default function CourseDetailsPage() {
         </div>
       </div>
 
-      {/* Main Content & Sticky Purchase Sidebar */}
+      {/* Main Content & Sticky Sidebar */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
           {/* Left Column: Details, Curriculum, Instructor */}
           <div className="lg:col-span-2 space-y-12">
+            {/* Enrolled Status Notice Bar if enrolled */}
+            {isEnrolled && (
+              <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-950/60 to-purple-950/40 border border-emerald-500/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30 shrink-0">
+                    <GraduationCap className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                      <span>You are enrolled in this course</span>
+                      <CheckCircle className="w-4 h-4 text-emerald-400 inline" />
+                    </h4>
+                    <p className="text-xs text-slate-300 mt-0.5">
+                      {completedLessons.length} of {totalLessonsCount} lessons completed ({progressPercentage}%)
+                    </p>
+                  </div>
+                </div>
+
+                <Link
+                  href={`/student/learn/${course.slug || course._id}`}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-white gradient-button flex items-center gap-2 shadow-lg shadow-purple-600/30 shrink-0 hover:scale-105 transition-all"
+                >
+                  <Play className="w-3.5 h-3.5 fill-white" />
+                  <span>Resume Course</span>
+                </Link>
+              </div>
+            )}
+
             {/* Learning Outcomes */}
             {learningOutcomes.length > 0 && (
               <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-slate-800">
@@ -274,10 +407,92 @@ export default function CourseDetailsPage() {
               </div>
             )}
 
+            {/* UPCOMING LIVE SESSIONS FOR THIS COURSE */}
+            {courseLiveClasses.length > 0 && (
+              <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-rose-500/30 bg-gradient-to-br from-rose-950/20 via-slate-900 to-purple-950/20 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center border border-rose-500/30">
+                      <Radio className="w-4 h-4 animate-pulse" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-white">Live Interactive Sessions</h3>
+                      <p className="text-xs text-slate-400">Exclusive live workshops and Q&A scheduled for this course</p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold text-rose-400 bg-rose-500/10 border border-rose-500/30 px-3 py-1 rounded-full">
+                    {courseLiveClasses.length} Scheduled
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  {courseLiveClasses.map((session) => {
+                    const isLive = session.status === "live";
+                    const dateStr = new Date(session.scheduledStartTime).toLocaleString(undefined, {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    });
+
+                    return (
+                      <div
+                        key={session._id}
+                        className={`p-4 rounded-2xl border ${
+                          isLive
+                            ? "bg-slate-900 border-rose-500/60 shadow-lg shadow-rose-950/40"
+                            : "bg-slate-950/80 border-slate-800"
+                        } space-y-3 flex flex-col justify-between`}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="font-bold text-purple-400 flex items-center gap-1">
+                              <Calendar className="w-3 h-3" />
+                              <span>{dateStr}</span>
+                            </span>
+                            {isLive && (
+                              <span className="font-black text-rose-400 bg-rose-500/20 px-2 py-0.5 rounded-full border border-rose-500/40 animate-pulse">
+                                LIVE NOW
+                              </span>
+                            )}
+                          </div>
+                          <h4 className="text-xs font-bold text-white line-clamp-1">{session.title}</h4>
+                          <p className="text-[11px] text-slate-400 line-clamp-2">{session.description || "Live lecture and real-time student Q&A."}</p>
+                        </div>
+
+                        {isEnrolled ? (
+                          <Link
+                            href={`/live/${session._id}`}
+                            className={`w-full py-2 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1.5 transition-all ${
+                              isLive
+                                ? "bg-rose-600 hover:bg-rose-500 animate-pulse"
+                                : "gradient-button"
+                            }`}
+                          >
+                            <Radio className="w-3.5 h-3.5" />
+                            <span>{isLive ? "Join Live Classroom" : "Access Live Room"}</span>
+                          </Link>
+                        ) : (
+                          <button
+                            onClick={handleEnroll}
+                            className="w-full py-2 rounded-xl text-xs font-bold text-slate-300 bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-center gap-1.5 transition-all"
+                          >
+                            <span>Enroll to Participate</span>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Curriculum Breakdown */}
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-xl font-bold text-white">Course Curriculum</h3>
+
                 <span className="text-xs text-slate-400">
                   {sections.length} Sections • {totalLessonsCount} Lessons • {totalDuration}m total
                 </span>
@@ -306,26 +521,30 @@ export default function CourseDetailsPage() {
                             const lessonId = lesson._id || lesson.id || String(lIdx);
                             const isQuiz = lesson.type === "quiz";
                             const isAssignment = lesson.type === "assignment";
+                            const isLessonCompleted = completedLessons.includes(lessonId);
 
                             return (
                               <div
                                 key={lIdx}
                                 onClick={() => {
+                                  if (isEnrolled) {
+                                    router.push(`/student/learn/${course.slug || course._id}?lessonId=${lessonId}`);
+                                    return;
+                                  }
                                   if (lesson.isFreePreview) {
                                     setShowPreviewModal(true);
                                     return;
                                   }
-                                  if (!user || user.role !== "student") {
-                                    handleEnroll();
-                                    return;
-                                  }
-                                  router.push(`/student/learn/${course.slug || course._id}?lessonId=${lessonId}`);
+                                  handleEnroll();
                                 }}
                                 className="p-3.5 flex items-center justify-between text-xs text-slate-300 hover:bg-purple-950/30 hover:text-white cursor-pointer transition-colors group"
                               >
-
                                 <div className="flex items-center gap-3">
-                                  {isQuiz ? (
+                                  {isLessonCompleted ? (
+                                    <div className="w-5 h-5 rounded-md bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
+                                      <CheckCircle className="w-3.5 h-3.5" />
+                                    </div>
+                                  ) : isQuiz ? (
                                     <div className="w-5 h-5 rounded-md bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/30 group-hover:scale-110 transition-transform">
                                       <HelpCircle className="w-3 h-3" />
                                     </div>
@@ -343,6 +562,11 @@ export default function CourseDetailsPage() {
                                   </span>
                                 </div>
                                 <div className="flex items-center gap-2.5">
+                                  {isLessonCompleted && (
+                                    <span className="text-[10px] font-bold text-emerald-300 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/40">
+                                      Completed
+                                    </span>
+                                  )}
                                   {isQuiz && (
                                     <span className="text-[10px] font-bold text-amber-300 bg-amber-900/40 px-2 py-0.5 rounded border border-amber-500/30">
                                       Quiz
@@ -353,7 +577,7 @@ export default function CourseDetailsPage() {
                                       Assignment
                                     </span>
                                   )}
-                                  {lesson.isFreePreview && !isQuiz && !isAssignment && (
+                                  {!isEnrolled && lesson.isFreePreview && !isQuiz && !isAssignment && (
                                     <span className="text-[10px] font-bold text-purple-300 bg-purple-900/40 px-2 py-0.5 rounded border border-purple-500/30">
                                       Free Preview
                                     </span>
@@ -388,7 +612,7 @@ export default function CourseDetailsPage() {
             </div>
           </div>
 
-          {/* Right Column: Sticky Pricing & Action Card */}
+          {/* Right Column: Sticky Pricing or Active Enrolled Card */}
           <div className="lg:col-span-1">
             <div className="sticky top-24 glass-panel p-6 rounded-3xl border border-purple-500/30 shadow-2xl space-y-6">
               {/* Media Preview Box */}
@@ -404,38 +628,51 @@ export default function CourseDetailsPage() {
                 </div>
               </div>
 
-              {/* Price Display */}
-              <div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-black text-white">
-                    ${appliedDiscount > 0 ? (course.price * 0.5).toFixed(2) : (course.discountPrice || course.price).toFixed(2)}
-                  </span>
-                  {course.discountPrice && (
-                    <span className="text-sm text-slate-500 line-through">${course.price.toFixed(2)}</span>
-                  )}
-                </div>
+              {/* DYNAMIC CARD CONTENT BASED ON ENROLLMENT / ROLE */}
+              {isEnrolled ? (
+                /* ENROLLED STUDENT VIEW */
+                <div className="space-y-4">
+                  <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+                        <CheckCircle className="w-4 h-4" />
+                        <span>Enrolled in this Course</span>
+                      </span>
+                      <span className="text-xs font-mono font-bold text-purple-300">
+                        {progressPercentage}%
+                      </span>
+                    </div>
 
-                {/* Coupon Code Input */}
-                <div className="mt-3 flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Coupon (e.g. WELCOME50)"
-                    value={couponCode}
-                    onChange={(e) => setCouponCode(e.target.value)}
-                    className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white uppercase placeholder-slate-500 flex-1 focus:outline-none focus:border-purple-500"
-                  />
-                  <button
-                    onClick={handleApplyCoupon}
-                    className="bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-purple-300 px-3 py-1.5 rounded-xl border border-slate-700"
+                    {/* Progress Bar */}
+                    <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                      <div
+                        className="bg-gradient-to-r from-emerald-500 to-purple-500 h-2 rounded-full transition-all duration-500"
+                        style={{ width: `${progressPercentage}%` }}
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      {completedLessons.length} of {totalLessonsCount} lessons completed
+                    </p>
+                  </div>
+
+                  <Link
+                    href={`/student/learn/${course.slug || course._id}`}
+                    className="w-full py-4 rounded-xl text-sm font-bold text-white gradient-button shadow-lg shadow-purple-600/30 flex items-center justify-center gap-2 hover:scale-[1.02] transition-all cursor-pointer"
                   >
-                    Apply
-                  </button>
-                </div>
-                {couponMsg && <p className="text-[11px] font-medium text-emerald-400 mt-1">{couponMsg}</p>}
-              </div>
+                    <Play className="w-4 h-4 fill-white" />
+                    <span>Continue Learning</span>
+                  </Link>
 
-              {/* Action Buttons based on Role */}
-              {user?.role === "teacher" ? (
+                  <Link
+                    href="/student/dashboard"
+                    className="w-full py-3 rounded-xl text-xs font-bold text-slate-300 bg-slate-800/80 hover:bg-slate-700 hover:text-white border border-slate-700/80 flex items-center justify-center gap-1.5 transition-all"
+                  >
+                    <GraduationCap className="w-4 h-4 text-purple-400" />
+                    <span>Go to Student Dashboard</span>
+                  </Link>
+                </div>
+              ) : user?.role === "teacher" ? (
+                /* TEACHER VIEW */
                 <div className="space-y-3">
                   <div className="p-3 rounded-xl bg-blue-950/40 border border-blue-500/30 text-blue-300 text-xs flex items-start gap-2">
                     <ShieldCheck className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
@@ -450,6 +687,7 @@ export default function CourseDetailsPage() {
                   </button>
                 </div>
               ) : user?.role === "admin" ? (
+                /* ADMIN VIEW */
                 <div className="space-y-3">
                   <div className="p-3 rounded-xl bg-purple-950/40 border border-purple-500/30 text-purple-300 text-xs flex items-start gap-2">
                     <ShieldCheck className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
@@ -464,13 +702,47 @@ export default function CourseDetailsPage() {
                   </button>
                 </div>
               ) : (
-                <button
-                  onClick={handleEnroll}
-                  className="w-full py-4 rounded-xl text-sm font-bold text-white gradient-button shadow-lg shadow-purple-600/30 flex items-center justify-center gap-2 hover:scale-[1.02] transition-all cursor-pointer"
-                >
-                  <Play className="w-4 h-4 fill-white" />
-                  <span>Enroll & Start Learning Now</span>
-                </button>
+                /* NOT ENROLLED VIEW (VISITOR / NEW STUDENT) */
+                <div className="space-y-6">
+                  {/* Price Display */}
+                  <div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-3xl font-black text-white">
+                        ${appliedDiscount > 0 ? (course.price * 0.5).toFixed(2) : (course.discountPrice || course.price).toFixed(2)}
+                      </span>
+                      {course.discountPrice && (
+                        <span className="text-sm text-slate-500 line-through">${course.price.toFixed(2)}</span>
+                      )}
+                    </div>
+
+                    {/* Coupon Code Input */}
+                    <div className="mt-3 flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Coupon (e.g. WELCOME50)"
+                        value={couponCode}
+                        onChange={(e) => setCouponCode(e.target.value)}
+                        className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white uppercase placeholder-slate-500 flex-1 focus:outline-none focus:border-purple-500"
+                      />
+                      <button
+                        onClick={handleApplyCoupon}
+                        className="bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-purple-300 px-3 py-1.5 rounded-xl border border-slate-700"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                    {couponMsg && <p className="text-[11px] font-medium text-emerald-400 mt-1">{couponMsg}</p>}
+                  </div>
+
+                  <button
+                    onClick={handleEnroll}
+                    disabled={isEnrolling}
+                    className="w-full py-4 rounded-xl text-sm font-bold text-white gradient-button shadow-lg shadow-purple-600/30 flex items-center justify-center gap-2 hover:scale-[1.02] transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <Play className="w-4 h-4 fill-white" />
+                    <span>{isEnrolling ? "Enrolling..." : "Enroll & Start Learning Now"}</span>
+                  </button>
+                </div>
               )}
 
               {/* Guarantee list */}
@@ -493,7 +765,6 @@ export default function CourseDetailsPage() {
         </div>
       </div>
 
-
       {/* Course Video Preview Modal */}
       {showPreviewModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
@@ -510,7 +781,7 @@ export default function CourseDetailsPage() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            
+
             <div className="aspect-video w-full bg-slate-950">
               <UniversalVideoPlayer
                 url={course.previewVideo || (course.sections[0]?.lessons[0]?.contentUrl)}
@@ -526,3 +797,4 @@ export default function CourseDetailsPage() {
     </div>
   );
 }
+

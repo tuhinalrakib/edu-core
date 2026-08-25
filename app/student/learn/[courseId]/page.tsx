@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import {
@@ -167,7 +167,7 @@ function DripCountdownScreen({ unlockAt, lessonTitle, onTimerZero }: DripCountdo
   );
 }
 
-export default function UdemyLearningPlayer() {
+function UdemyLearningPlayerContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const { user } = useAuth();
@@ -242,21 +242,36 @@ export default function UdemyLearningPlayer() {
 
       setCompletedLessons(savedCompleted);
 
+      // Helper to check if a lesson is completed across any ID format
+      const checkLessonCompleted = (les: any, list = savedCompleted) => {
+        if (!les) return false;
+        const candidates = [les._id, les.id, les.slug, les.title, String(les._id), String(les.id)].filter(Boolean);
+        return candidates.some((id) => list.includes(id));
+      };
+
+      // Helper to match lesson with target query/id
+      const isMatchingLesson = (l: any, targetKey: string) => {
+        if (!l || !targetKey) return false;
+        return (
+          l._id === targetKey ||
+          l.id === targetKey ||
+          String(l._id) === targetKey ||
+          String(l.id) === targetKey ||
+          l.slug === targetKey ||
+          l.title === targetKey
+        );
+      };
+
       // Determine initial active lesson
       if (foundCourse?.sections && foundCourse.sections.length > 0) {
         const queryLessonId = searchParams?.get("lessonId");
         let initialLesson: any = null;
         let initialSection: any = null;
 
+        // 1. Check query parameter `?lessonId=...`
         if (queryLessonId) {
           for (const s of foundCourse.sections) {
-            const l = (s.lessons || []).find(
-              (les: any) =>
-                les._id === queryLessonId ||
-                les.id === queryLessonId ||
-                String(les._id) === queryLessonId ||
-                String(les.id) === queryLessonId
-            );
+            const l = (s.lessons || []).find((les: any) => isMatchingLesson(les, queryLessonId));
             if (l) {
               initialLesson = l;
               initialSection = s;
@@ -265,7 +280,36 @@ export default function UdemyLearningPlayer() {
           }
         }
 
-        // If no valid query lesson, pick first lesson of first section
+        // 2. Check localStorage last active lesson
+        if (!initialLesson) {
+          try {
+            const lastSavedId = localStorage.getItem(`educore_last_lesson_${targetId}`);
+            if (lastSavedId) {
+              for (const s of foundCourse.sections) {
+                const l = (s.lessons || []).find((les: any) => isMatchingLesson(les, lastSavedId));
+                if (l) {
+                  initialLesson = l;
+                  initialSection = s;
+                  break;
+                }
+              }
+            }
+          } catch (e) {}
+        }
+
+        // 3. Find first uncompleted lesson across sections in sequence
+        if (!initialLesson) {
+          for (const s of foundCourse.sections) {
+            const l = (s.lessons || []).find((les: any) => !checkLessonCompleted(les, savedCompleted));
+            if (l) {
+              initialLesson = l;
+              initialSection = s;
+              break;
+            }
+          }
+        }
+
+        // 4. Fallback: First lesson of first section
         if (!initialLesson) {
           initialSection = foundCourse.sections[0];
           initialLesson = foundCourse.sections[0]?.lessons?.[0];
@@ -274,6 +318,10 @@ export default function UdemyLearningPlayer() {
         if (initialSection) setActiveSection(initialSection);
         if (initialLesson) {
           setActiveLesson(initialLesson);
+          try {
+            localStorage.setItem(`educore_last_lesson_${targetId}`, initialLesson._id || initialLesson.id || initialLesson.title || "");
+          } catch (e) {}
+
           if (initialLesson.type === "quiz") {
             setActiveSubView("quiz");
           } else if (initialLesson.type === "assignment") {
@@ -307,16 +355,22 @@ export default function UdemyLearningPlayer() {
 
   const currentLessonId = activeLesson?._id || activeLesson?.id || activeLesson?.title || "";
 
+  // Helper to check if a specific lesson is completed
+  const checkLessonCompleted = (les: any, list = completedLessons) => {
+    if (!les) return false;
+    const candidates = [les._id, les.id, les.slug, les.title, String(les._id), String(les.id)].filter(Boolean);
+    return candidates.some((id) => list.includes(id));
+  };
+
   // Helper to check if a specific lesson is unlocked
   const isLessonUnlocked = (lessonIndex: number) => {
     if (lessonIndex === 0) return true; // First lesson is always unlocked
     const previousLesson = allLessons[lessonIndex - 1];
     if (!previousLesson) return false;
-    const prevId = previousLesson._id || previousLesson.id || previousLesson.title || "";
-    return completedLessons.includes(prevId);
+    return checkLessonCompleted(previousLesson);
   };
 
-  const isCurrentLessonCompleted = completedLessons.includes(currentLessonId);
+  const isCurrentLessonCompleted = checkLessonCompleted(activeLesson);
 
   // Lesson Requirements Breakdown
   const hasVideoRequirement = (activeLesson?.type === "video" || !activeLesson?.type || Boolean(activeLesson?.contentUrl)) && activeLesson?.type !== "quiz" && activeLesson?.type !== "assignment";
@@ -382,6 +436,10 @@ export default function UdemyLearningPlayer() {
     }
 
     setActiveLesson(lesson);
+    try {
+      localStorage.setItem(`educore_last_lesson_${targetId}`, lesson._id || lesson.id || lesson.title || "");
+    } catch (e) {}
+
     if (lesson.type === "quiz") {
       setActiveSubView("quiz");
     } else if (lesson.type === "assignment") {
@@ -495,6 +553,9 @@ export default function UdemyLearningPlayer() {
     if (nextLesson) {
       const nextIdx = currentLessonIndex + 1;
       setActiveLesson(nextLesson);
+      try {
+        localStorage.setItem(`educore_last_lesson_${targetId}`, nextLesson._id || nextLesson.id || nextLesson.title || "");
+      } catch (e) {}
       if (nextLesson.type === "quiz") {
         setActiveSubView("quiz");
       } else if (nextLesson.type === "assignment") {
@@ -872,7 +933,7 @@ export default function UdemyLearningPlayer() {
                       (activeLesson?._id && lesson._id === activeLesson._id) ||
                       (activeLesson?.id && lesson.id === activeLesson.id) ||
                       activeLesson?.title === lesson.title;
-                    const isDone = completedLessons.includes(lesson._id || lesson.id || lesson.title || "");
+                    const isDone = checkLessonCompleted(lesson);
                     const isQuiz = lesson.type === "quiz";
                     const isAssignment = lesson.type === "assignment";
 
@@ -1008,5 +1069,20 @@ export default function UdemyLearningPlayer() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function UdemyLearningPlayer() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
+          <div className="w-12 h-12 border-4 border-purple-500/20 border-t-purple-500 rounded-full animate-spin mb-4" />
+          <p className="text-sm font-semibold text-slate-300">Loading course player...</p>
+        </div>
+      }
+    >
+      <UdemyLearningPlayerContent />
+    </Suspense>
   );
 }

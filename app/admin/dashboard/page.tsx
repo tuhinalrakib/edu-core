@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { API_BASE_URL } from "@/lib/api";
@@ -49,7 +49,7 @@ import { AdminCharts } from "@/components/charts/AdminCharts";
 import { EduCoreLoader } from "@/components/EduCoreLoader";
 import Swal from "sweetalert2";
 
-export default function AdminDashboard() {
+function AdminDashboardContent() {
   const searchParams = useSearchParams();
   const initialTab = (searchParams.get("tab") as any) || "overview";
   const { user, updateUser, token } = useAuth();
@@ -2533,4 +2533,18 @@ export default function AdminDashboard() {
     </div>
   </>
 );
+}
+
+export default function AdminDashboard() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
+          <EduCoreLoader message="Loading admin dashboard..." />
+        </div>
+      }
+    >
+      <AdminDashboardContent />
+    </Suspense>
+  );
 }

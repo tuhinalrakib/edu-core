@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Plus,
@@ -76,7 +76,7 @@ type LessonType = "video" | "pdf" | "audio" | "attachment" | "quiz" | "assignmen
 type VideoProvider = "cloudinary" | "youtube" | "gdrive" | "googledrive" | "vimeo" | "mp4";
 type QuestionType = "mcq" | "true_false" | "fill_blank" | "coding";
 
-export default function CourseBuilderPage() {
+function CourseBuilderContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editCourseId = searchParams.get("id");
@@ -2225,5 +2225,13 @@ export default function CourseBuilderPage() {
         )}
       </div>
     </>
+  );
+}
+
+export default function CourseBuilderPage() {
+  return (
+    <Suspense fallback={<EduCoreLoader message="Loading course builder..." />}>
+      <CourseBuilderContent />
+    </Suspense>
   );
 }

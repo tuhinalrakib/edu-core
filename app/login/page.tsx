@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
@@ -8,7 +8,7 @@ import { BookOpen, Mail, Lock, ArrowRight, Eye, EyeOff, ShieldCheck, RefreshCw, 
 import Swal from "sweetalert2";
 import { API_BASE_URL } from "@/lib/api";
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const emailParam = searchParams.get("email") || "";
@@ -460,5 +460,22 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center px-4 py-12">
+          <div className="w-full max-w-md glass-panel p-8 rounded-3xl border border-slate-800 shadow-2xl flex flex-col items-center justify-center py-16">
+            <RefreshCw className="w-8 h-8 text-purple-400 animate-spin mb-4" />
+            <p className="text-sm text-slate-300 font-medium">Loading login portal...</p>
+          </div>
+        </div>
+      }
+    >
+      <LoginContent />
+    </Suspense>
   );
 }

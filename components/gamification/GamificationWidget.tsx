@@ -75,9 +75,10 @@ export const GamificationWidget: React.FC<GamificationWidgetProps> = ({
   }));
 
   return (
-    <div className="space-y-6">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
       {/* 1. XP & Level Progress */}
-      <div className="glass-panel p-5 sm:p-6 rounded-3xl border border-slate-800 space-y-5 shadow-lg">
+      <div className="glass-panel p-5 sm:p-6 rounded-3xl border border-slate-800 space-y-5 shadow-lg flex flex-col justify-between">
+
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center font-black text-sm sm:text-base shrink-0 shadow-inner">

@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Search, BookOpen } from "lucide-react";
 import { CourseCard } from "@/components/CourseCard";
 import { API_BASE_URL, CourseType } from "@/lib/api";
 import { EduCoreLoader } from "@/components/EduCoreLoader";
 
-export default function CatalogPage() {
+function CatalogContent() {
   const searchParams = useSearchParams();
   const initialCategory = searchParams?.get("category") || "All";
 
@@ -140,5 +140,19 @@ export default function CatalogPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function CatalogPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+          <EduCoreLoader message="Loading course catalog..." />
+        </div>
+      }
+    >
+      <CatalogContent />
+    </Suspense>
   );
 }
