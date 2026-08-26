@@ -37,6 +37,10 @@ import {
   Radio,
   Calendar,
   Video,
+  CheckCircle2,
+  MessageSquare,
+  BarChart3,
+  Layers,
 } from "lucide-react";
 import { StatCard } from "@/components/StatCard";
 import { API_BASE_URL } from "@/lib/api";
@@ -378,6 +382,17 @@ export default function TeacherDashboard() {
   const [submissions, setSubmissions] = useState<any[]>([]);
   const [isLoadingSubmissions, setIsLoadingSubmissions] = useState(false);
   const [isSubmittingGrade, setIsSubmittingGrade] = useState(false);
+  const [submissionSearch, setSubmissionSearch] = useState("");
+  const [submissionStatusFilter, setSubmissionStatusFilter] = useState<"all" | "pending" | "graded">("all");
+  const [submissionCourseFilter, setSubmissionCourseFilter] = useState("all");
+  const [showAddMockSubModal, setShowAddMockSubModal] = useState(false);
+  const [isCreatingMockSub, setIsCreatingMockSub] = useState(false);
+  const [mockStudentName, setMockStudentName] = useState("");
+  const [mockAssignmentTitle, setMockAssignmentTitle] = useState("");
+  const [mockCourseTitle, setMockCourseTitle] = useState("");
+  const [mockFileType, setMockFileType] = useState("ZIP Archive");
+  const [mockFileUrl, setMockFileUrl] = useState("");
+  const [mockNotes, setMockNotes] = useState("");
 
   // Selected Submission for Review Modal
   const [selectedSub, setSelectedSub] = useState<any | null>(null);
@@ -405,10 +420,10 @@ export default function TeacherDashboard() {
             (typeof sub.student === "object" ? sub.student?.avatar : null) ||
             `https://ui-avatars.com/api/?name=${encodeURIComponent(sub.studentName || "Student")}&background=7c3aed&color=fff&bold=true`,
           studentEmail: sub.studentEmail || (typeof sub.student === "object" ? sub.student?.email : "") || "",
-          courseTitle: sub.courseTitle || (typeof sub.course === "object" ? sub.course?.title : null) || "Next.js 15 & React 19 Full-Stack SaaS Masterclass",
-          assignmentTitle: sub.assignmentTitle || (typeof sub.assignment === "object" ? sub.assignment?.title : null) || "Build a Full-Stack E-Commerce API with Express",
-          fileType: sub.fileType || "ZIP Archive",
-          fileUrl: sub.fileUrl || "https://github.com",
+          courseTitle: sub.courseTitle || (typeof sub.course === "object" ? sub.course?.title : null) || "Course",
+          assignmentTitle: sub.assignmentTitle || (typeof sub.assignment === "object" ? sub.assignment?.title : null) || "Assignment",
+          fileType: sub.fileType || "File / Link",
+          fileUrl: sub.fileUrl || "#",
           linkType: sub.fileType || "Submission File",
           submittedDate: sub.submittedAt
             ? new Date(sub.submittedAt).toLocaleString(undefined, {
@@ -426,26 +441,151 @@ export default function TeacherDashboard() {
         }));
 
         setSubmissions(formatted);
-        localStorage.setItem("educore_assignment_submissions", JSON.stringify(formatted));
         return;
+      } else {
+        setSubmissions([]);
       }
     } catch (err) {
       console.warn("Dynamic assignment submissions fetch error:", err);
+      setSubmissions([]);
     } finally {
       setIsLoadingSubmissions(false);
     }
-
-    try {
-      const stored = localStorage.getItem("educore_assignment_submissions");
-      if (stored) {
-        setSubmissions(JSON.parse(stored));
-      }
-    } catch (e) {}
   };
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("educore_assignment_submissions");
+    }
     fetchSubmissions();
   }, [user, activeTab]);
+
+
+  const handleDeleteSubmission = async (subId: string) => {
+    const confirm = await Swal.fire({
+      icon: "warning",
+      title: "Delete Submission?",
+      text: "Are you sure you want to remove this student submission record?",
+      showCancelButton: true,
+      confirmButtonText: "Yes, Delete",
+      confirmButtonColor: "#ef4444",
+      background: "#0f172a",
+      color: "#ffffff",
+    });
+
+    if (confirm.isConfirmed) {
+      const activeToken = token || (typeof window !== "undefined" ? localStorage.getItem("token") || localStorage.getItem("educore_token") : null);
+      try {
+        await fetch(`${API_BASE_URL}/assignments/submissions/${subId}`, {
+          method: "DELETE",
+          headers: {
+            ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
+          },
+        });
+      } catch (e) {
+        console.warn("Backend delete submission fallback:", e);
+      }
+
+      setSubmissions((prev) => {
+        const updated = prev.filter((s) => s.id !== subId);
+        localStorage.setItem("educore_assignment_submissions", JSON.stringify(updated));
+        return updated;
+      });
+
+      Swal.fire({
+        icon: "success",
+        title: "Deleted!",
+        text: "Student submission removed.",
+        background: "#0f172a",
+        color: "#ffffff",
+        confirmButtonColor: "#7c3aed",
+        timer: 1500,
+      });
+    }
+  };
+
+  const handleCreateMockSubmission = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsCreatingMockSub(true);
+    const activeToken = token || (typeof window !== "undefined" ? localStorage.getItem("token") || localStorage.getItem("educore_token") : null);
+
+    const newSubPayload = {
+      studentName: mockStudentName,
+      courseTitle: mockCourseTitle,
+      assignmentTitle: mockAssignmentTitle,
+      fileType: mockFileType,
+      fileUrl: mockFileUrl,
+      notes: mockNotes,
+    };
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/assignments/mock-submission`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
+        },
+        body: JSON.stringify(newSubPayload),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShowAddMockSubModal(false);
+        fetchSubmissions();
+        Swal.fire({
+          icon: "success",
+          title: "New Submission Created! 🚀",
+          text: `Sample submission from ${mockStudentName} added for review.`,
+          background: "#0f172a",
+          color: "#ffffff",
+          confirmButtonColor: "#7c3aed",
+        });
+        return;
+      }
+    } catch (e) {
+      console.warn("Backend mock submission creation fallback:", e);
+    } finally {
+      setIsCreatingMockSub(false);
+    }
+
+    const localSub = {
+      id: "sub_" + Date.now(),
+      studentName: mockStudentName,
+      studentAvatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(mockStudentName)}&background=7c3aed&color=fff&bold=true`,
+      studentEmail: `${mockStudentName.toLowerCase().replace(/\s+/g, ".")}@example.com`,
+      courseTitle: mockCourseTitle,
+      assignmentTitle: mockAssignmentTitle,
+      fileType: mockFileType,
+      fileUrl: mockFileUrl,
+      linkType: mockFileType,
+      submittedDate: new Date().toLocaleString(undefined, {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      status: "Pending Review",
+      marks: null,
+      feedback: "",
+      notes: mockNotes,
+    };
+
+    setSubmissions((prev) => {
+      const updated = [localSub, ...prev];
+      localStorage.setItem("educore_assignment_submissions", JSON.stringify(updated));
+      return updated;
+    });
+
+    setShowAddMockSubModal(false);
+    Swal.fire({
+      icon: "success",
+      title: "New Submission Added! 🚀",
+      text: `Sample submission from ${mockStudentName} added for review.`,
+      background: "#0f172a",
+      color: "#ffffff",
+      confirmButtonColor: "#7c3aed",
+    });
+  };
 
   const handleStatusChange = async (courseId: string, newStatus: string) => {
     setCourses((prev) => {
@@ -538,8 +678,8 @@ export default function TeacherDashboard() {
 
       const data = await res.json();
       if (data.success) {
-        setSubmissions((prev) =>
-          prev.map((s) =>
+        setSubmissions((prev) => {
+          const updated = prev.map((s) =>
             s.id === selectedSub.id
               ? {
                   ...s,
@@ -548,8 +688,10 @@ export default function TeacherDashboard() {
                   feedback: givenFeedback,
                 }
               : s
-          )
-        );
+          );
+          localStorage.setItem("educore_assignment_submissions", JSON.stringify(updated));
+          return updated;
+        });
 
         Swal.fire({
           icon: "success",
@@ -568,8 +710,8 @@ export default function TeacherDashboard() {
         throw new Error(data.message || "Failed to submit grade");
       }
     } catch (err: any) {
-      setSubmissions((prev) =>
-        prev.map((s) =>
+      setSubmissions((prev) => {
+        const updated = prev.map((s) =>
           s.id === selectedSub.id
             ? {
                 ...s,
@@ -578,8 +720,10 @@ export default function TeacherDashboard() {
                 feedback: givenFeedback,
               }
             : s
-        )
-      );
+        );
+        localStorage.setItem("educore_assignment_submissions", JSON.stringify(updated));
+        return updated;
+      });
 
       Swal.fire({
         icon: "success",
@@ -601,6 +745,37 @@ export default function TeacherDashboard() {
   const pendingSubmissionsCount = submissions.filter(
     (s) => s.status === "Pending Review" || String(s.status).toLowerCase().includes("pending")
   ).length;
+
+  const gradedSubmissionsCount = submissions.filter(
+    (s) => s.status === "Graded" || String(s.status).toLowerCase() === "graded"
+  ).length;
+
+  const gradedSubmissionsWithMarks = submissions.filter((s) => s.marks !== null && s.marks !== undefined);
+  const averageGrade =
+    gradedSubmissionsWithMarks.length > 0
+      ? Math.round(gradedSubmissionsWithMarks.reduce((acc, curr) => acc + Number(curr.marks), 0) / gradedSubmissionsWithMarks.length)
+      : 0;
+
+  // Filtered Submissions list based on search and filters
+  const filteredSubmissions = submissions.filter((s) => {
+    const matchesSearch =
+      submissionSearch.trim() === "" ||
+      s.studentName?.toLowerCase().includes(submissionSearch.toLowerCase()) ||
+      s.studentEmail?.toLowerCase().includes(submissionSearch.toLowerCase()) ||
+      s.assignmentTitle?.toLowerCase().includes(submissionSearch.toLowerCase()) ||
+      s.courseTitle?.toLowerCase().includes(submissionSearch.toLowerCase());
+
+    const matchesStatus =
+      submissionStatusFilter === "all" ||
+      (submissionStatusFilter === "pending" && (s.status === "Pending Review" || String(s.status).toLowerCase().includes("pending"))) ||
+      (submissionStatusFilter === "graded" && (s.status === "Graded" || String(s.status).toLowerCase() === "graded"));
+
+    const matchesCourse =
+      submissionCourseFilter === "all" || s.courseTitle === submissionCourseFilter;
+
+    return matchesSearch && matchesStatus && matchesCourse;
+  });
+
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
@@ -1139,111 +1314,294 @@ export default function TeacherDashboard() {
 
       {/* TAB 3: ASSIGNMENTS REVIEW & GRADING */}
       {activeTab === "assignments" && (
-        <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
+        <div className="space-y-6">
+          {/* Top Quick Stats for Assignments */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+            <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-purple-950/80 border border-purple-500/30 text-purple-400 flex items-center justify-center font-bold">
+                <FileText className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xl font-black text-white">{submissions.length}</p>
+                <p className="text-[11px] text-slate-400 font-medium">Total Submissions</p>
+              </div>
+            </div>
 
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                <span>Student Assignment Submissions</span>
-                {pendingSubmissionsCount > 0 && (
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                    {pendingSubmissionsCount} Pending Review
-                  </span>
-                )}
-              </h2>
-              <p className="text-xs text-slate-400">Review student PDF, ZIP, and Google Drive submissions, assign marks, and send feedback.</p>
+            <div className="p-4 rounded-2xl bg-slate-900/80 border border-amber-500/20 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-950/80 border border-amber-500/30 text-amber-400 flex items-center justify-center font-bold">
+                <Clock className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-xl font-black text-amber-300">{pendingSubmissionsCount}</p>
+                  {pendingSubmissionsCount > 0 && (
+                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400 font-medium">Pending Review</p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-900/80 border border-emerald-500/20 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-950/80 border border-emerald-500/30 text-emerald-400 flex items-center justify-center font-bold">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xl font-black text-emerald-400">{gradedSubmissionsCount}</p>
+                <p className="text-[11px] text-slate-400 font-medium">Graded & Returned</p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-900/80 border border-blue-500/20 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-950/80 border border-blue-500/30 text-blue-400 flex items-center justify-center font-bold">
+                <Award className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xl font-black text-blue-300">{averageGrade > 0 ? `${averageGrade}%` : "N/A"}</p>
+                <p className="text-[11px] text-slate-400 font-medium">Avg. Assignment Score</p>
+              </div>
             </div>
           </div>
 
-          {isLoadingSubmissions ? (
-            <div className="py-12 border border-slate-800/60 rounded-2xl bg-slate-950/40">
-              <EduCoreLoader message="Loading student assignment submissions & project files" />
+          <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-5">
+            {/* Header with Title & Action */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-purple-400" />
+                  <span>Student Assignment Submissions</span>
+                  {pendingSubmissionsCount > 0 && (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      {pendingSubmissionsCount} Pending Review
+                    </span>
+                  )}
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Review student code repositories, design prototypes, and document submissions, assign scores, and provide structured feedback.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddMockSubModal(true)}
+                  className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-purple-950/50 border border-slate-800 hover:border-purple-500/40 text-purple-300 text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add Sample Submission</span>
+                </button>
+              </div>
             </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-300">
-                <thead className="bg-slate-950 text-slate-400 uppercase font-semibold text-[10px]">
-                  <tr>
-                    <th className="p-3">Student</th>
-                    <th className="p-3">Assignment Title</th>
-                    <th className="p-3">Submission File / Link</th>
-                    <th className="p-3">Date</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3">Marks</th>
-                    <th className="p-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800">
-                  {submissions.length === 0 ? (
+
+            {/* Filter & Search Bar */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 pt-1">
+              <div className="md:col-span-5 relative">
+                <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search student, email, assignment, or course..."
+                  value={submissionSearch}
+                  onChange={(e) => setSubmissionSearch(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-colors"
+                />
+                {submissionSearch && (
+                  <button
+                    onClick={() => setSubmissionSearch("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="md:col-span-4 flex items-center gap-1.5">
+                <select
+                  value={submissionCourseFilter}
+                  onChange={(e) => setSubmissionCourseFilter(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-purple-500 cursor-pointer"
+                >
+                  <option value="all">All Courses ({submissions.length})</option>
+                  {Array.from(new Set(submissions.map((s) => s.courseTitle).filter(Boolean))).map((title: any) => (
+                    <option key={title} value={title}>
+                      {title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="md:col-span-3 flex items-center justify-end gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setSubmissionStatusFilter("all")}
+                  className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all ${
+                    submissionStatusFilter === "all"
+                      ? "bg-purple-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  All ({submissions.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSubmissionStatusFilter("pending")}
+                  className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all ${
+                    submissionStatusFilter === "pending"
+                      ? "bg-amber-500 text-slate-950 font-black shadow-sm"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  Pending ({pendingSubmissionsCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSubmissionStatusFilter("graded")}
+                  className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all ${
+                    submissionStatusFilter === "graded"
+                      ? "bg-emerald-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  Graded ({gradedSubmissionsCount})
+                </button>
+              </div>
+            </div>
+
+            {/* Submissions Table */}
+            {isLoadingSubmissions ? (
+              <div className="py-12 border border-slate-800/60 rounded-2xl bg-slate-950/40">
+                <EduCoreLoader message="Loading student assignment submissions & project files" />
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-slate-800/80 bg-slate-950/40">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950 text-slate-400 uppercase font-semibold text-[10px] border-b border-slate-800">
                     <tr>
-                      <td colSpan={7} className="p-12 text-center text-slate-400">
-                        <FileText className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-                        <p className="font-semibold text-slate-300 text-sm">No Student Submissions Yet</p>
-                        <p className="text-xs text-slate-500 mt-1">When students submit course project assignments, they will appear here for review and grading.</p>
-                      </td>
+                      <th className="p-3.5">Student</th>
+                      <th className="p-3.5">Assignment Title</th>
+                      <th className="p-3.5">Submission File / Link</th>
+                      <th className="p-3.5">Submitted Date</th>
+                      <th className="p-3.5">Status</th>
+                      <th className="p-3.5">Marks</th>
+                      <th className="p-3.5 text-right">Actions</th>
                     </tr>
-                  ) : (
-                    submissions.map((sub) => (
-                      <tr key={sub.id} className="hover:bg-slate-900/50">
-                        <td className="p-3 font-bold text-white flex items-center gap-2.5">
-                          <img src={sub.studentAvatar} className="w-8 h-8 rounded-full object-cover border border-purple-500/40" />
-                          <div>
-                            <p>{sub.studentName}</p>
-                            <p className="text-[10px] text-slate-400 font-normal">{sub.courseTitle}</p>
-                          </div>
-                        </td>
-                        <td className="p-3 font-semibold text-slate-200">{sub.assignmentTitle}</td>
-                        <td className="p-3">
-                          <a
-                            href={sub.fileUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-purple-400 hover:underline font-bold text-[11px]"
-                          >
-                            <ExternalLink className="w-3.5 h-3.5" />
-                            <span>{sub.fileType}</span>
-                          </a>
-                        </td>
-                        <td className="p-3 text-slate-400">{sub.submittedDate}</td>
-                        <td className="p-3">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${
-                              sub.status === "Graded"
-                                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
-                                : "bg-amber-500/20 text-amber-300 border-amber-500/30"
-                            }`}
-                          >
-                            {sub.status}
-                          </span>
-                        </td>
-                        <td className="p-3 font-bold">
-                          {sub.marks !== null ? (
-                            <span className="text-emerald-400">{sub.marks} / 100</span>
-                          ) : (
-                            <span className="text-slate-500">-</span>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/80">
+                    {filteredSubmissions.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="p-12 text-center text-slate-400">
+                          <FileText className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+                          <p className="font-semibold text-slate-300 text-sm">No Student Submissions Found</p>
+                          <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                            {submissionSearch || submissionStatusFilter !== "all" || submissionCourseFilter !== "all"
+                              ? "Try adjusting your search query or filters to see more results."
+                              : "When students submit course project assignments, they will appear here for review and grading."}
+                          </p>
+                          {(submissionSearch || submissionStatusFilter !== "all" || submissionCourseFilter !== "all") && (
+                            <button
+                              onClick={() => {
+                                setSubmissionSearch("");
+                                setSubmissionStatusFilter("all");
+                                setSubmissionCourseFilter("all");
+                              }}
+                              className="mt-3 text-xs text-purple-400 hover:underline font-semibold"
+                            >
+                              Clear all filters
+                            </button>
                           )}
                         </td>
-                        <td className="p-3 text-right">
-                          <button
-                            onClick={() => {
-                              setSelectedSub(sub);
-                              setGivenMarks(sub.marks !== null ? sub.marks : "");
-                              setGivenFeedback(sub.feedback || "");
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-[11px] shadow-md cursor-pointer"
-                          >
-                            {sub.status === "Graded" ? "Edit Grade" : "Review & Grade"}
-                          </button>
-                        </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
+                    ) : (
+                      filteredSubmissions.map((sub) => (
+                        <tr key={sub.id} className="hover:bg-slate-900/50 transition-colors">
+                          <td className="p-3.5 font-bold text-white">
+                            <div className="flex items-center gap-2.5">
+                              <img
+                                src={sub.studentAvatar}
+                                alt={sub.studentName}
+                                className="w-9 h-9 rounded-full object-cover border border-purple-500/40 shrink-0"
+                              />
+                              <div className="min-w-0">
+                                <p className="truncate max-w-[150px]">{sub.studentName}</p>
+                                <p className="text-[10px] text-slate-400 font-normal truncate max-w-[170px]">
+                                  {sub.courseTitle}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="p-3.5">
+                            <p className="font-semibold text-slate-200 line-clamp-1">{sub.assignmentTitle}</p>
+                            {sub.notes && (
+                              <p className="text-[10px] text-slate-500 line-clamp-1 italic mt-0.5">
+                                Note: &quot;{sub.notes}&quot;
+                              </p>
+                            )}
+                          </td>
+                          <td className="p-3.5">
+                            <a
+                              href={sub.fileUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-950/40 hover:bg-purple-900/50 border border-purple-500/30 text-purple-300 hover:text-white font-bold text-[11px] transition-colors"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5 text-purple-400" />
+                              <span className="truncate max-w-[110px]">{sub.fileType}</span>
+                            </a>
+                          </td>
+                          <td className="p-3.5 text-slate-400 text-[11px] whitespace-nowrap">{sub.submittedDate}</td>
+                          <td className="p-3.5">
+                            <span
+                              className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
+                                sub.status === "Graded"
+                                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                                  : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                              }`}
+                            >
+                              {sub.status}
+                            </span>
+                          </td>
+                          <td className="p-3.5 font-bold">
+                            {sub.marks !== null ? (
+                              <span className="text-emerald-400 font-mono text-sm">{sub.marks} <span className="text-slate-500 text-xs font-normal">/ 100</span></span>
+                            ) : (
+                              <span className="text-slate-500">-</span>
+                            )}
+                          </td>
+                          <td className="p-3.5 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setSelectedSub(sub);
+                                  setGivenMarks(sub.marks !== null ? sub.marks : "");
+                                  setGivenFeedback(sub.feedback || "");
+                                }}
+                                className={`px-3 py-1.5 rounded-xl font-bold text-[11px] shadow-sm transition-all cursor-pointer ${
+                                  sub.status === "Graded"
+                                    ? "bg-slate-800 hover:bg-slate-700 text-purple-300 border border-slate-700"
+                                    : "gradient-button text-white shadow-purple-600/30 hover:scale-105"
+                                }`}
+                              >
+                                {sub.status === "Graded" ? "Edit Grade" : "Review & Grade"}
+                              </button>
+                              <button
+                                onClick={() => handleDeleteSubmission(sub.id)}
+                                className="w-7 h-7 rounded-lg bg-slate-900 border border-slate-800 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/30 flex items-center justify-center transition-colors"
+                                title="Delete Submission"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
+
 
       {/* TAB 4: QUIZZES OVERVIEW */}
       {activeTab === "quizzes" && (
@@ -1529,98 +1887,333 @@ export default function TeacherDashboard() {
 
       {/* MODAL: ASSIGNMENT REVIEW & GRADING */}
       {selectedSub && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 max-w-lg w-full rounded-3xl p-6 space-y-6 shadow-2xl animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-              <h3 className="text-lg font-bold text-white">Review & Grade Assignment</h3>
-              <button onClick={() => setSelectedSub(null)} className="text-slate-400 hover:text-white">
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-purple-500/30 max-w-lg w-full rounded-3xl p-6 space-y-5 shadow-2xl animate-in fade-in zoom-in duration-200 max-h-[92vh] flex flex-col my-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Award className="w-5 h-5 text-purple-400" />
+                  <span>Review & Grade Assignment</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">Assign marks, provide detailed feedback, and return assessment results.</p>
+              </div>
+              <button
+                onClick={() => setSelectedSub(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="flex items-center gap-3 bg-slate-950 p-4 rounded-2xl border border-slate-800">
-              <img src={selectedSub.studentAvatar} className="w-12 h-12 rounded-full object-cover border border-purple-500/40" />
-              <div>
-                <h4 className="text-sm font-bold text-white">{selectedSub.studentName}</h4>
-                <p className="text-xs text-purple-400 font-medium">{selectedSub.courseTitle}</p>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-slate-300">Assignment Title:</p>
-              <p className="text-xs text-slate-400 bg-slate-950 p-3 rounded-xl border border-slate-800">{selectedSub.assignmentTitle}</p>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-slate-300">Student Submission Link / Attachment:</p>
-              <a
-                href={selectedSub.fileUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-2 text-xs text-purple-300 font-bold bg-purple-950/40 border border-purple-500/30 p-3 rounded-xl hover:bg-purple-900/40 transition-colors"
-              >
-                <ExternalLink className="w-4 h-4 text-purple-400" />
-                <span>Open Submission File ({selectedSub.linkType})</span>
-              </a>
-            </div>
-
-            {selectedSub.notes && (
-              <div className="space-y-1.5">
-                <p className="text-xs font-semibold text-slate-300">Student Notes & Project Details:</p>
-                <div className="text-xs text-slate-300 bg-slate-950 p-3 rounded-xl border border-slate-800 whitespace-pre-line leading-relaxed max-h-32 overflow-y-auto">
-                  {selectedSub.notes}
+            <div className="space-y-4 overflow-y-auto pr-1 text-xs">
+              {/* Student Card */}
+              <div className="flex items-center gap-3 bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
+                <img
+                  src={selectedSub.studentAvatar}
+                  alt={selectedSub.studentName}
+                  className="w-12 h-12 rounded-full object-cover border-2 border-purple-500/50 shrink-0"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-sm font-bold text-white truncate">{selectedSub.studentName}</h4>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                        selectedSub.status === "Graded"
+                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                          : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                      }`}
+                    >
+                      {selectedSub.status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-purple-400 font-medium truncate mt-0.5">{selectedSub.courseTitle}</p>
+                  <p className="text-[11px] text-slate-500 truncate">{selectedSub.studentEmail}</p>
                 </div>
               </div>
-            )}
 
-            <form onSubmit={handleGradeSubmit} className="space-y-4 pt-2">
+              {/* Assignment Topic */}
+              <div className="space-y-1.5">
+                <p className="font-semibold text-slate-300">Assignment Title:</p>
+                <p className="text-slate-200 bg-slate-950 p-2.5 rounded-xl border border-slate-800 font-medium">
+                  {selectedSub.assignmentTitle}
+                </p>
+              </div>
+
+              {/* Submission Link */}
+              <div className="space-y-1.5">
+                <p className="font-semibold text-slate-300">Student Submission File / Project Link:</p>
+                <a
+                  href={selectedSub.fileUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-between bg-purple-950/40 hover:bg-purple-900/50 border border-purple-500/40 p-3 rounded-xl text-purple-300 font-bold hover:text-white transition-all group"
+                >
+                  <div className="flex items-center gap-2 truncate">
+                    <ExternalLink className="w-4 h-4 text-purple-400 group-hover:scale-110 transition-transform shrink-0" />
+                    <span className="truncate">{selectedSub.fileUrl}</span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded bg-purple-900/60 text-[10px] uppercase font-bold shrink-0 ml-2">
+                    {selectedSub.fileType} ↗
+                  </span>
+                </a>
+              </div>
+
+              {/* Student Notes */}
+              {selectedSub.notes && (
+                <div className="space-y-1.5">
+                  <p className="font-semibold text-slate-300">Student Project Notes:</p>
+                  <div className="text-slate-300 bg-slate-950 p-3 rounded-xl border border-slate-800 whitespace-pre-line leading-relaxed max-h-28 overflow-y-auto">
+                    {selectedSub.notes}
+                  </div>
+                </div>
+              )}
+
+              {/* Grading Form */}
+              <form onSubmit={handleGradeSubmit} className="space-y-4 pt-2 border-t border-slate-800/80">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="font-semibold text-slate-300">Assign Score (Out of 100) *</label>
+                    <span className="text-[11px] text-purple-400 font-bold">
+                      {typeof givenMarks === "number" && givenMarks >= 0 ? `${givenMarks}% Grade` : ""}
+                    </span>
+                  </div>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={givenMarks}
+                    onChange={(e) => setGivenMarks(e.target.value === "" ? "" : Number(e.target.value))}
+                    required
+                    placeholder="Enter marks from 0 to 100 (e.g. 95)"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-purple-500 font-mono"
+                  />
+
+                  {/* Quick Preset Buttons */}
+                  <div className="flex flex-wrap items-center gap-1.5 pt-2">
+                    <span className="text-[10px] text-slate-500 font-medium">Quick Score:</span>
+                    {[
+                      { pts: 100, label: "100 (A+)" },
+                      { pts: 95, label: "95 (A)" },
+                      { pts: 90, label: "90 (A-)" },
+                      { pts: 85, label: "85 (B+)" },
+                      { pts: 80, label: "80 (B)" },
+                      { pts: 75, label: "75 (C)" },
+                    ].map((preset) => (
+                      <button
+                        key={preset.pts}
+                        type="button"
+                        onClick={() => setGivenMarks(preset.pts)}
+                        className={`px-2 py-0.5 rounded-lg border text-[10px] font-bold transition-all cursor-pointer ${
+                          givenMarks === preset.pts
+                            ? "bg-purple-600 border-purple-500 text-white shadow-sm"
+                            : "bg-slate-950 border-slate-800 text-slate-300 hover:border-purple-500/40 hover:text-white"
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-300 mb-1.5">Instructor Feedback & Comments</label>
+                  <textarea
+                    rows={3}
+                    value={givenFeedback}
+                    onChange={(e) => setGivenFeedback(e.target.value)}
+                    placeholder="Provide constructive suggestions, commend good practices, and highlight improvements..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-purple-500 resize-none leading-relaxed"
+                  />
+
+                  {/* Quick Feedback Snippet Chips */}
+                  <div className="space-y-1 pt-1.5">
+                    <span className="text-[10px] text-slate-500 block">Feedback Snippets (Click to insert):</span>
+                    <div className="flex flex-wrap gap-1">
+                      {[
+                        "🌟 Outstanding work! Clean code architecture and comprehensive features.",
+                        "👍 Great job! All core requirements and tests passed successfully.",
+                        "💡 Good effort! Consider refining error handling and adding modular comments.",
+                        "⚡ Excellent project! Postman documentation and CRUD routes verified.",
+                      ].map((snippet, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setGivenFeedback(snippet)}
+                          className="px-2 py-0.5 rounded-lg bg-slate-950 hover:bg-purple-950/60 border border-slate-800 hover:border-purple-500/30 text-[10px] text-slate-300 hover:text-purple-200 text-left transition-all cursor-pointer"
+                        >
+                          {snippet.slice(0, 35)}...
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSub(null)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white bg-slate-950 border border-slate-800 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingGrade}
+                    className="px-5 py-2 rounded-xl text-xs font-bold text-white gradient-button flex items-center gap-1.5 shadow-lg shadow-purple-600/30 disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSubmittingGrade ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Saving Grade...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" />
+                        <span>Return Graded Assignment</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ADD SAMPLE / TEST STUDENT SUBMISSION */}
+      {showAddMockSubModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-purple-500/30 max-w-lg w-full rounded-3xl p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in duration-200 max-h-[92vh] flex flex-col my-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Assign Marks (Out of 100)</label>
+                <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                  <Plus className="w-4 h-4 sm:w-5 sm:h-5 text-purple-400" />
+                  <span>Create Sample Student Submission</span>
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Inject a mock student project submission to test grading, scoring, and review workflows.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowAddMockSubModal(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateMockSubmission} className="space-y-3 text-xs overflow-y-auto pr-1">
+              <div>
+                <label className="block font-semibold text-slate-300 mb-1">Student Full Name *</label>
                 <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={givenMarks}
-                  onChange={(e) => setGivenMarks(Number(e.target.value))}
+                  type="text"
                   required
-                  placeholder="e.g. 95"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-500"
+                  placeholder="e.g. Maya Lin"
+                  value={mockStudentName}
+                  onChange={(e) => setMockStudentName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:outline-none focus:border-purple-500"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Teacher Feedback & Comments</label>
-                <textarea
-                  rows={3}
-                  value={givenFeedback}
-                  onChange={(e) => setGivenFeedback(e.target.value)}
-                  placeholder="Write constructive feedback for the student..."
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-purple-500"
+                <label className="block font-semibold text-slate-300 mb-1">Select Course *</label>
+                <select
+                  value={mockCourseTitle}
+                  onChange={(e) => setMockCourseTitle(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:outline-none focus:border-purple-500 cursor-pointer"
+                >
+                  {courses.length > 0 ? (
+                    courses.map((c) => (
+                      <option key={c._id} value={c.title}>
+                        {c.title}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="Next.js 15 & React 19 Full-Stack SaaS Masterclass">
+                        Next.js 15 & React 19 Full-Stack SaaS Masterclass
+                      </option>
+                      <option value="UI/UX Design Masterclass 2026">UI/UX Design Masterclass 2026</option>
+                    </>
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-300 mb-1">Assignment Project Title *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Build a Full-Stack E-Commerce API with Express"
+                  value={mockAssignmentTitle}
+                  onChange={(e) => setMockAssignmentTitle(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:outline-none focus:border-purple-500"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block font-semibold text-slate-300 mb-1">File / Submission Type</label>
+                  <select
+                    value={mockFileType}
+                    onChange={(e) => setMockFileType(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:outline-none focus:border-purple-500 cursor-pointer"
+                  >
+                    <option value="ZIP Archive">ZIP Archive</option>
+                    <option value="GitHub Repo">GitHub Repo</option>
+                    <option value="Figma Link">Figma Link</option>
+                    <option value="PDF Document">PDF Document</option>
+                    <option value="Live Project Link">Live Project Link</option>
+                    <option value="Google Drive Link">Google Drive Link</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-300 mb-1">Submission URL *</label>
+                  <input
+                    type="url"
+                    required
+                    placeholder="https://github.com/student/project"
+                    value={mockFileUrl}
+                    onChange={(e) => setMockFileUrl(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-300 mb-1">Student Notes & Description</label>
+                <textarea
+                  rows={2}
+                  placeholder="Notes about implementation..."
+                  value={mockNotes}
+                  onChange={(e) => setMockNotes(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white focus:outline-none focus:border-purple-500 resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800 shrink-0">
                 <button
                   type="button"
-                  onClick={() => setSelectedSub(null)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 cursor-pointer"
+                  onClick={() => setShowAddMockSubModal(false)}
+                  className="px-4 py-2 rounded-xl text-slate-400 hover:text-white bg-slate-950 border border-slate-800 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmittingGrade}
-                  className="px-5 py-2 rounded-xl text-xs font-bold text-white gradient-button flex items-center gap-1.5 shadow-md disabled:opacity-50 cursor-pointer"
+                  disabled={isCreatingMockSub}
+                  className="px-5 py-2 rounded-xl gradient-button text-white font-bold flex items-center gap-1.5 shadow-lg shadow-purple-600/30 disabled:opacity-50"
                 >
-                  {isSubmittingGrade ? (
+                  {isCreatingMockSub ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Saving Grade...</span>
+                      <span>Creating...</span>
                     </>
                   ) : (
                     <>
-                      <Send className="w-3.5 h-3.5" />
-                      <span>Return Graded Assignment</span>
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Submission</span>
                     </>
                   )}
                 </button>
@@ -1632,3 +2225,4 @@ export default function TeacherDashboard() {
     </div>
   );
 }
+

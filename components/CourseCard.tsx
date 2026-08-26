@@ -69,6 +69,18 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
 
 
 
+  const isTeacher = user?.role === "teacher";
+  const isAdmin = user?.role === "admin";
+  const isStudent = user?.role === "student" || !user;
+
+  const isOwner =
+    isTeacher &&
+    ((typeof course.teacher === "object" && (course.teacher?._id === user?.id || course.teacher?._id === (user as any)?._id)) ||
+      course.teacher === user?.id ||
+      course.teacher === (user as any)?._id ||
+      (course.teacherName && user?.name && course.teacherName.toLowerCase() === user?.name.toLowerCase()) ||
+      (course.instructorName && user?.name && course.instructorName.toLowerCase() === user?.name.toLowerCase()));
+
   return (
     <div className="glass-card rounded-2xl overflow-hidden flex flex-col group border border-slate-800/80 bg-slate-900/60 hover:border-purple-500/40 transition-all">
       {/* Thumbnail Container */}
@@ -81,7 +93,15 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
         <div className="absolute top-3 left-3 bg-purple-900/80 backdrop-blur-md text-purple-200 border border-purple-500/30 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full">
           {course.category || "General"}
         </div>
-        {isEnrolled ? (
+        {isTeacher && isOwner ? (
+          <div className="absolute top-3 right-3 bg-purple-600/90 backdrop-blur-md text-white font-bold text-[10px] uppercase px-2.5 py-1 rounded-md flex items-center gap-1 shadow-lg border border-purple-400/30">
+            <span>Your Course</span>
+          </div>
+        ) : isTeacher ? (
+          <div className="absolute top-3 right-3 bg-blue-600/90 backdrop-blur-md text-white font-bold text-[10px] uppercase px-2.5 py-1 rounded-md flex items-center gap-1 shadow-lg">
+            <span>Instructor View</span>
+          </div>
+        ) : isEnrolled ? (
           <div className="absolute top-3 right-3 bg-emerald-500/90 backdrop-blur-md text-slate-950 font-black text-[10px] uppercase px-2.5 py-1 rounded-md flex items-center gap-1 shadow-lg">
             <CheckCircle className="w-3 h-3 text-slate-950" />
             <span>Enrolled</span>
@@ -113,7 +133,15 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
           </div>
 
           {/* Title */}
-          <Link href={isEnrolled ? `/student/learn/${course.slug || course._id}` : `/courses/${course.slug || course._id}`}>
+          <Link
+            href={
+              isTeacher
+                ? `/student/learn/${course.slug || course._id}`
+                : isEnrolled
+                  ? `/student/learn/${course.slug || course._id}`
+                  : `/courses/${course.slug || course._id}`
+            }
+          >
             <h3 className="text-base font-bold text-slate-100 group-hover:text-purple-300 transition-colors line-clamp-2 leading-snug mb-2">
               {course.title}
             </h3>
@@ -144,7 +172,11 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
           </div>
 
           <div className="flex items-center justify-between">
-            {isEnrolled ? (
+            {isTeacher ? (
+              <div className="flex items-center gap-1.5 text-purple-300 text-xs font-bold">
+                <span>Instructor Access</span>
+              </div>
+            ) : isEnrolled ? (
               <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold">
                 <CheckCircle className="w-4 h-4" />
                 <span>Active Access</span>
@@ -160,7 +192,33 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
               </div>
             )}
 
-            {isEnrolled ? (
+            {isTeacher ? (
+              <div className="flex items-center gap-2">
+                <Link
+                  href={`/student/learn/${course.slug || course._id}`}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 transition-all border border-slate-700/60"
+                  title="Preview Course Player"
+                >
+                  <Play className="w-3 h-3 text-emerald-400" />
+                  <span>Preview</span>
+                </Link>
+                <Link
+                  href={isOwner ? `/teacher/courses/create?id=${course._id}` : `/teacher/dashboard`}
+                  className="inline-flex items-center gap-1 text-xs font-bold text-purple-400 hover:text-purple-300 transition-all"
+                >
+                  <span>{isOwner ? "Manage" : "Studio"}</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            ) : isAdmin ? (
+              <Link
+                href="/admin/dashboard"
+                className="inline-flex items-center gap-1 text-xs font-bold text-purple-400 hover:text-purple-300 transition-all"
+              >
+                <span>Manage</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            ) : isEnrolled ? (
               <Link
                 href={`/student/learn/${course.slug || course._id}`}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600/30 border border-purple-500/40 text-xs font-bold text-purple-300 hover:bg-purple-600 hover:text-white transition-all shadow-md"
@@ -183,4 +241,5 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
     </div>
   );
 };
+
 

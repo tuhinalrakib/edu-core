@@ -525,38 +525,38 @@ function AdminDashboardContent() {
   });
 
   // 6. Payment & Withdrawals State
-  const [transactions, setTransactions] = useState([
-    {
-      id: "TXN-98421",
-      student: "Alex Rivera",
-      course: "Next.js 15 & React 19 Full-Stack SaaS Masterclass",
-      amount: 99.99,
-      commission: 19.99,
-      date: "2026-07-27 10:14 AM",
-      status: "Completed",
-      gateway: "Stripe",
-    },
-    {
-      id: "TXN-98420",
-      student: "Jessica Chen",
-      course: "Python for Data Science",
-      amount: 89.99,
-      commission: 17.99,
-      date: "2026-07-27 09:30 AM",
-      status: "Completed",
-      gateway: "PayPal",
-    },
-    {
-      id: "TXN-98419",
-      student: "Michael Vance",
-      course: "Cyber Security Fundamentals",
-      amount: 59.99,
-      commission: 11.99,
-      date: "2026-07-26 04:12 PM",
-      status: "Refunded",
-      gateway: "Stripe",
-    },
-  ]);
+  // const [transactions, setTransactions] = useState([
+  //   {
+  //     id: "TXN-98421",
+  //     student: "Alex Rivera",
+  //     course: "Next.js 15 & React 19 Full-Stack SaaS Masterclass",
+  //     amount: 99.99,
+  //     commission: 19.99,
+  //     date: "2026-07-27 10:14 AM",
+  //     status: "Completed",
+  //     gateway: "Stripe",
+  //   },
+  //   {
+  //     id: "TXN-98420",
+  //     student: "Jessica Chen",
+  //     course: "Python for Data Science",
+  //     amount: 89.99,
+  //     commission: 17.99,
+  //     date: "2026-07-27 09:30 AM",
+  //     status: "Completed",
+  //     gateway: "PayPal",
+  //   },
+  //   {
+  //     id: "TXN-98419",
+  //     student: "Michael Vance",
+  //     course: "Cyber Security Fundamentals",
+  //     amount: 59.99,
+  //     commission: 11.99,
+  //     date: "2026-07-26 04:12 PM",
+  //     status: "Refunded",
+  //     gateway: "Stripe",
+  //   },
+  // ]);
 
   const [withdrawals, setWithdrawals] = useState([
     {
