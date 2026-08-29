@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/tandpfun/skill-icons/main/icons/NextJS-Dark.svg" width="70" height="70" alt="EduCore Logo" />
+  <img src="./public/logo.svg" width="100" height="100" alt="EduCore Logo" />
 </p>
 
 <h1 align="center">🎓 EduCore — Next-Gen AI-Powered SaaS LMS</h1>
