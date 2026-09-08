@@ -12,6 +12,7 @@ export interface UserType {
   phone?: string;
   earnings?: number;
   withdrawBalance?: number;
+  enrolledCourses?: any[];
 }
 
 export interface LessonType {
@@ -67,6 +68,8 @@ export interface CourseType {
   totalStudents: number;
   requirements: string[];
   learningOutcomes: string[];
+  hasCertificate?: boolean;
+  isEnrolled?: boolean;
 }
 
 // Dynamic course list placeholder

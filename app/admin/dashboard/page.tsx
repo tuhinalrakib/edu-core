@@ -176,6 +176,7 @@ function AdminDashboardContent() {
   const [teacherSearch, setTeacherSearch] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
   const [courseSearch, setCourseSearch] = useState("");
+  const [courseStatusTab, setCourseStatusTab] = useState<"all" | "pending" | "published" | "draft">("all");
 
   // Modals States
   const [selectedTeacher, setSelectedTeacher] = useState<any | null>(null);
@@ -195,54 +196,13 @@ function AdminDashboardContent() {
   });
 
   // 1. Teachers State (Dynamic API + LocalStorage + Default Fallback)
-  const [teachers, setTeachers] = useState<any[]>([
-    {
-      id: "t1",
-      name: "Dr. Sarah Jenkins",
-      email: "teacher@educore.com",
-      title: "Senior Full-Stack Instructor",
-      status: "approved",
-      coursesCount: 8,
-      studentsCount: 12450,
-      totalEarnings: 45200,
-      rating: 4.9,
-      avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150",
-      joinedDate: "2025-01-15",
-      bio: "Ph.D. in Computer Science with 12+ years of software engineering experience at Tech Giants.",
-    },
-    {
-      id: "t2",
-      name: "Alex Mercer",
-      email: "alex.m@educore.com",
-      title: "DevOps & Cloud Architect",
-      status: "pending",
-      coursesCount: 3,
-      studentsCount: 3200,
-      totalEarnings: 18400,
-      rating: 4.7,
-      avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150",
-      joinedDate: "2026-03-10",
-      bio: "AWS Certified Solutions Architect & Docker Core Contributor.",
-    },
-    {
-      id: "t3",
-      name: "Elena Rostova",
-      email: "elena.r@educore.com",
-      title: "UI/UX Design Lead",
-      status: "approved",
-      coursesCount: 5,
-      studentsCount: 8900,
-      totalEarnings: 29800,
-      rating: 4.85,
-      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
-      joinedDate: "2025-08-22",
-      bio: "Product Designer with 8+ years leading design systems at Figma agency partners.",
-    },
-  ]);
+  const [teachers, setTeachers] = useState<any[]>([]);
+  const [isLoadingTeachers, setIsLoadingTeachers] = useState(true);
 
   // Dynamic Fetch Teachers Effect
   useEffect(() => {
     const fetchTeachers = async () => {
+      setIsLoadingTeachers(true);
       try {
         const headers: any = {};
         if (token) headers.Authorization = `Bearer ${token}`;
@@ -272,16 +232,65 @@ function AdminDashboardContent() {
               merged.push(lt);
             }
           });
-          if (merged.length > 0) setTeachers(merged);
-          return;
+          if (merged.length > 0) {
+            setTeachers(merged);
+            return;
+          }
         }
       } catch (err) {
         console.warn("Backend teachers fetch warning, loading local storage:", err);
+      } finally {
+        setIsLoadingTeachers(false);
       }
 
       const storedTeachers = JSON.parse(localStorage.getItem("educore_teachers") || "[]");
       if (storedTeachers.length > 0) {
         setTeachers(storedTeachers);
+      } else {
+        setTeachers([
+          {
+            id: "t1",
+            name: "Dr. Sarah Jenkins",
+            email: "teacher@educore.com",
+            title: "Senior Full-Stack Instructor",
+            status: "approved",
+            coursesCount: 8,
+            studentsCount: 12450,
+            totalEarnings: 45200,
+            rating: 4.9,
+            avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150",
+            joinedDate: "2025-01-15",
+            bio: "Ph.D. in Computer Science with 12+ years of software engineering experience at Tech Giants.",
+          },
+          {
+            id: "t2",
+            name: "Alex Mercer",
+            email: "alex.m@educore.com",
+            title: "DevOps & Cloud Architect",
+            status: "pending",
+            coursesCount: 3,
+            studentsCount: 3200,
+            totalEarnings: 18400,
+            rating: 4.7,
+            avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150",
+            joinedDate: "2026-03-10",
+            bio: "AWS Certified Solutions Architect & Docker Core Contributor.",
+          },
+          {
+            id: "t3",
+            name: "Elena Rostova",
+            email: "elena.r@educore.com",
+            title: "UI/UX Design Lead",
+            status: "approved",
+            coursesCount: 5,
+            studentsCount: 8900,
+            totalEarnings: 29800,
+            rating: 4.85,
+            avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
+            joinedDate: "2025-08-22",
+            bio: "Product Designer with 8+ years leading design systems at Figma agency partners.",
+          },
+        ]);
       }
     };
 
@@ -353,25 +362,12 @@ function AdminDashboardContent() {
 
   // 3. Courses Management State (Fetched dynamically from DB)
   const [adminCourses, setAdminCourses] = useState<any[]>([]);
+  const [isLoadingCourses, setIsLoadingCourses] = useState(true);
 
   // 4. Categories & Tags Dynamic State
-  const [categories, setCategories] = useState<any[]>([
-    { _id: "cat1", name: "Web Development", count: 42 },
-    { _id: "cat2", name: "DevOps & Cloud", count: 18 },
-    { _id: "cat3", name: "UI/UX Design", count: 25 },
-    { _id: "cat4", name: "Data Science & AI", count: 31 },
-  ]);
-
-  const [tags, setTags] = useState<any[]>([
-    { _id: "t1", name: "React" },
-    { _id: "t2", name: "Next.js" },
-    { _id: "t3", name: "TypeScript" },
-    { _id: "t4", name: "Docker" },
-    { _id: "t5", name: "Python" },
-    { _id: "t6", name: "Figma" },
-    { _id: "t7", name: "AWS" },
-    { _id: "t8", name: "GraphQL" },
-  ]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [tags, setTags] = useState<any[]>([]);
+  const [isLoadingCategories, setIsLoadingCategories] = useState(true);
 
   const [newCatName, setNewCatName] = useState("");
   const [newTagName, setNewTagName] = useState("");
@@ -383,20 +379,57 @@ function AdminDashboardContent() {
   // Fetch dynamic Categories & Tags from Backend API
   useEffect(() => {
     const fetchCategoriesAndTags = async () => {
+      setIsLoadingCategories(true);
       try {
         const resCat = await fetch(`${API_BASE_URL}/categories`);
         const dataCat = await resCat.json();
         if (dataCat.success && Array.isArray(dataCat.categories)) {
           setCategories(dataCat.categories);
+        } else {
+          setCategories([
+            { _id: "cat1", name: "Web Development", count: 42 },
+            { _id: "cat2", name: "DevOps & Cloud", count: 18 },
+            { _id: "cat3", name: "UI/UX Design", count: 25 },
+            { _id: "cat4", name: "Data Science & AI", count: 31 },
+          ]);
         }
 
         const resTags = await fetch(`${API_BASE_URL}/categories/tags`);
         const dataTags = await resTags.json();
         if (dataTags.success && Array.isArray(dataTags.tags)) {
           setTags(dataTags.tags);
+        } else {
+          setTags([
+            { _id: "t1", name: "React" },
+            { _id: "t2", name: "Next.js" },
+            { _id: "t3", name: "TypeScript" },
+            { _id: "t4", name: "Docker" },
+            { _id: "t5", name: "Python" },
+            { _id: "t6", name: "Figma" },
+            { _id: "t7", name: "AWS" },
+            { _id: "t8", name: "GraphQL" },
+          ]);
         }
       } catch (err) {
         console.warn("Backend categories/tags load error:", err);
+        setCategories([
+          { _id: "cat1", name: "Web Development", count: 42 },
+          { _id: "cat2", name: "DevOps & Cloud", count: 18 },
+          { _id: "cat3", name: "UI/UX Design", count: 25 },
+          { _id: "cat4", name: "Data Science & AI", count: 31 },
+        ]);
+        setTags([
+          { _id: "t1", name: "React" },
+          { _id: "t2", name: "Next.js" },
+          { _id: "t3", name: "TypeScript" },
+          { _id: "t4", name: "Docker" },
+          { _id: "t5", name: "Python" },
+          { _id: "t6", name: "Figma" },
+          { _id: "t7", name: "AWS" },
+          { _id: "t8", name: "GraphQL" },
+        ]);
+      } finally {
+        setIsLoadingCategories(false);
       }
     };
 
@@ -406,12 +439,15 @@ function AdminDashboardContent() {
   // Fetch dynamic courses created by teachers from MongoDB Database
   useEffect(() => {
     const fetchAdminCourses = async () => {
+      setIsLoadingCourses(true);
+      let combinedCourses: any[] = [];
       try {
+        const headers: any = {};
+        if (token) headers.Authorization = `Bearer ${token}`;
+
         const res = await fetch(`${API_BASE_URL}/courses?status=all&t=${Date.now()}`, {
           cache: "no-store",
-          headers: {
-            "Cache-Control": "no-cache",
-          },
+          headers,
         });
         const data = await res.json();
         if (data.success && Array.isArray(data.courses)) {
@@ -419,8 +455,8 @@ function AdminDashboardContent() {
             id: c._id || c.id,
             _id: c._id || c.id,
             title: c.title,
-            teacher: typeof c.teacher === "object" ? (c.teacher?.name || c.teacher?.email) : c.teacher || "Instructor",
-            teacherEmail: typeof c.teacher === "object" ? c.teacher?.email : "",
+            teacher: typeof c.teacher === "object" ? (c.teacher?.name || c.teacher?.email) : c.teacher || c.teacherName || "Instructor",
+            teacherEmail: typeof c.teacher === "object" ? c.teacher?.email : c.teacherEmail || "",
             category: c.category,
             price: c.price,
             status: c.status ? String(c.status).toLowerCase() : "pending",
@@ -428,33 +464,52 @@ function AdminDashboardContent() {
             students: c.totalStudents || 0,
             thumbnail: c.thumbnail || "https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=400",
           }));
-
-          setAdminCourses(apiCourses);
-          return;
+          combinedCourses = apiCourses;
         }
       } catch (err) {
         console.warn("Backend courses fetch error:", err);
       }
 
-      const localCreated: any[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
-      const formattedLocal = localCreated.map((lc) => ({
-        id: lc._id || lc.id || "lc-" + Date.now(),
-        _id: lc._id || lc.id,
-        title: lc.title,
-        teacher: typeof lc.teacher === "object" ? (lc.teacher?.name || lc.teacher?.email) : lc.teacher || "Instructor",
-        teacherEmail: typeof lc.teacher === "object" ? lc.teacher?.email : "",
-        category: lc.category,
-        price: lc.price,
-        status: lc.status ? String(lc.status).toLowerCase() : "pending",
-        isFeatured: lc.isFeatured || false,
-        students: lc.totalStudents || 0,
-        thumbnail: lc.thumbnail,
-      }));
-      setAdminCourses(formattedLocal);
+      // Merge locally created courses for instant real-time sync across tabs
+      try {
+        const localCreated: any[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
+        localCreated.forEach((lc: any) => {
+          const existingIdx = combinedCourses.findIndex(
+            (c) => String(c.id) === String(lc._id) || String(c.id) === String(lc.id) || (lc.title && c.title === lc.title)
+          );
+          const formatted = {
+            id: lc._id || lc.id || "lc-" + Date.now(),
+            _id: lc._id || lc.id,
+            title: lc.title,
+            teacher: typeof lc.teacher === "object" ? (lc.teacher?.name || lc.teacher?.email) : lc.teacher || lc.teacherName || "Instructor",
+            teacherEmail: typeof lc.teacher === "object" ? lc.teacher?.email : lc.teacherEmail || "",
+            category: lc.category,
+            price: lc.price,
+            status: lc.status ? String(lc.status).toLowerCase() : "pending",
+            isFeatured: lc.isFeatured || false,
+            students: lc.totalStudents || 0,
+            thumbnail: lc.thumbnail || "https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=400",
+          };
+          if (existingIdx === -1) {
+            combinedCourses.unshift(formatted);
+          } else {
+            // Keep backend database status as single source of truth, and update localStorage
+            if (combinedCourses[existingIdx].status) {
+              lc.status = combinedCourses[existingIdx].status;
+            }
+          }
+        });
+        localStorage.setItem("educore_created_courses", JSON.stringify(localCreated));
+      } catch (e) {}
+
+      setAdminCourses(combinedCourses);
+      setIsLoadingCourses(false);
     };
 
     fetchAdminCourses();
-  }, []);
+  }, [token]);
+
+  const isInitialLoading = isLoadingTeachers || isLoadingStudents || isLoadingCourses || isLoadingCategories;
 
   // Calculate dynamic stats for any teacher based on created courses
   const getTeacherStats = (t: any) => {
@@ -786,7 +841,7 @@ function AdminDashboardContent() {
     });
   };
 
-  const handleCourseStatusChange = async (courseId: string, newStatus: "published" | "rejected") => {
+  const handleCourseStatusChange = async (courseId: string, newStatus: "published" | "rejected" | "draft") => {
     try {
       const headers: any = { "Content-Type": "application/json" };
       if (token) headers.Authorization = `Bearer ${token}`;
@@ -799,22 +854,44 @@ function AdminDashboardContent() {
       console.warn("Backend course status update fallback to local storage:", err);
     }
 
-    setAdminCourses((prev) => prev.map((c) => (c.id === courseId || c._id === courseId ? { ...c, status: newStatus } : c)));
+    const targetCourse = adminCourses.find((c) => c.id === courseId || c._id === courseId || c.title === courseId);
+
+    setAdminCourses((prev) =>
+      prev.map((c) =>
+        c.id === courseId || c._id === courseId || (targetCourse && c.title === targetCourse.title)
+          ? { ...c, status: newStatus }
+          : c
+      )
+    );
 
     // Update localStorage created courses list so Explore Catalog respects Admin approval immediately
-    const localCreated: any[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
-    const updatedLocal = localCreated.map((lc) => {
-      if (String(lc._id) === String(courseId) || String(lc.id) === String(courseId) || lc.title === courseId) {
-        return { ...lc, status: newStatus };
-      }
-      return lc;
-    });
-    localStorage.setItem("educore_created_courses", JSON.stringify(updatedLocal));
+    try {
+      const localCreated: any[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
+      const updatedLocal = localCreated.map((lc) => {
+        if (
+          String(lc._id) === String(courseId) ||
+          String(lc.id) === String(courseId) ||
+          lc.title === courseId ||
+          (targetCourse && targetCourse.title === lc.title)
+        ) {
+          return { ...lc, status: newStatus };
+        }
+        return lc;
+      });
+      localStorage.setItem("educore_created_courses", JSON.stringify(updatedLocal));
+    } catch (e) {}
+
+    const isPub = newStatus === "published";
+    const isDraft = newStatus === "draft";
 
     Swal.fire({
       icon: "success",
-      title: "Course Status Updated",
-      text: `Course has been ${newStatus === "published" ? "APPROVED & PUBLISHED to Catalog" : "REJECTED"}`,
+      title: isPub ? "Course Approved & Published! 🚀" : isDraft ? "Course Unpublished (Draft)" : "Course Rejected ❌",
+      text: isPub
+        ? "Course is now APPROVED and PUBLISHED live on the public course catalog."
+        : isDraft
+          ? "Course has been unpublished and moved to draft."
+          : "Course has been marked as rejected.",
       background: "#0f172a",
       color: "#ffffff",
       confirmButtonColor: "#7c3aed",
@@ -1060,7 +1137,7 @@ function AdminDashboardContent() {
     });
   };
 
-  const pendingCoursesCount = adminCourses.filter((c) => c.status === "pending").length;
+  const pendingCoursesCount = adminCourses.filter((c) => String(c.status || "").toLowerCase() === "pending").length;
 
   return (
     <>
@@ -1070,7 +1147,12 @@ function AdminDashboardContent() {
           fullScreen={true}
         />
       )}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+      {isInitialLoading ? (
+        <div className="min-h-[85vh] flex flex-col items-center justify-center p-6">
+          <EduCoreLoader message="Loading EduCore admin data & platform metrics" />
+        </div>
+      ) : (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
       {/* Super Admin Top Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 glass-panel p-8 rounded-3xl border border-slate-800 bg-gradient-to-r from-slate-900 via-purple-950/40 to-slate-900">
         <div>
@@ -1293,13 +1375,28 @@ function AdminDashboardContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
-                {teachers
-                  .filter(
-                    (t) =>
-                      t.name.toLowerCase().includes(teacherSearch.toLowerCase()) ||
-                      t.email.toLowerCase().includes(teacherSearch.toLowerCase())
-                  )
-                  .map((t) => {
+                {isLoadingTeachers ? (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-slate-400">
+                      <div className="py-6">
+                        <EduCoreLoader message="Loading instructor accounts from database" />
+                      </div>
+                    </td>
+                  </tr>
+                ) : teachers.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-slate-500 text-xs font-medium">
+                      No instructors found in database.
+                    </td>
+                  </tr>
+                ) : (
+                  teachers
+                    .filter(
+                      (t) =>
+                        t.name.toLowerCase().includes(teacherSearch.toLowerCase()) ||
+                        t.email.toLowerCase().includes(teacherSearch.toLowerCase())
+                    )
+                    .map((t) => {
                     const stats = getTeacherStats(t);
                     return (
                       <tr key={t.id} className="hover:bg-slate-900/50">
@@ -1376,7 +1473,8 @@ function AdminDashboardContent() {
                       </td>
                     </tr>
                   );
-                })}
+                })
+              )}
               </tbody>
             </table>
           </div>
@@ -1421,9 +1519,8 @@ function AdminDashboardContent() {
                 {isLoadingStudents ? (
                   <tr>
                     <td colSpan={6} className="p-8 text-center text-slate-400">
-                      <div className="flex flex-col items-center justify-center gap-2">
-                        <RefreshCw className="w-6 h-6 animate-spin text-purple-500" />
-                        <span className="text-xs font-semibold">Loading students from EduCore database...</span>
+                      <div className="py-6">
+                        <EduCoreLoader message="Loading registered students from database" />
                       </div>
                     </td>
                   </tr>
@@ -1517,7 +1614,7 @@ function AdminDashboardContent() {
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
                 <h2 className="text-xl font-bold text-white">All Platform Courses</h2>
-                <p className="text-xs text-slate-400">Approve, reject, delete, or toggle featured status for any course.</p>
+                <p className="text-xs text-slate-400">Review, approve, publish, reject, or feature courses submitted by instructors.</p>
               </div>
               <div className="relative w-full sm:w-64">
                 <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1531,6 +1628,60 @@ function AdminDashboardContent() {
               </div>
             </div>
 
+            {/* Course Status Filter Tabs */}
+            <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3">
+              {[
+                { id: "all", label: "All Courses", count: adminCourses.length },
+                {
+                  id: "pending",
+                  label: "Pending Approval",
+                  count: adminCourses.filter((c) => String(c.status).toLowerCase() === "pending").length,
+                  highlight: true,
+                },
+                {
+                  id: "published",
+                  label: "Published",
+                  count: adminCourses.filter((c) => {
+                    const st = String(c.status).toLowerCase();
+                    return st === "published" || st === "approved";
+                  }).length,
+                },
+                {
+                  id: "draft",
+                  label: "Drafts & Rejected",
+                  count: adminCourses.filter((c) => {
+                    const st = String(c.status).toLowerCase();
+                    return st === "draft" || st === "rejected" || st === "archived";
+                  }).length,
+                },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setCourseStatusTab(tab.id as any)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                    courseStatusTab === tab.id
+                      ? tab.highlight && tab.count > 0
+                        ? "bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20"
+                        : "bg-purple-600 text-white shadow-md shadow-purple-600/20"
+                      : "bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800"
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                      courseStatusTab === tab.id
+                        ? "bg-black/20 text-current"
+                        : tab.highlight && tab.count > 0
+                          ? "bg-amber-500/20 text-amber-300 animate-pulse"
+                          : "bg-slate-800 text-slate-400"
+                    }`}
+                  >
+                    {tab.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-950 text-slate-400 uppercase font-semibold text-[10px]">
@@ -1541,99 +1692,139 @@ function AdminDashboardContent() {
                     <th className="p-3">Price</th>
                     <th className="p-3">Featured</th>
                     <th className="p-3">Status</th>
-                    <th className="p-3 text-right">Actions</th>
+                    <th className="p-3 text-right">Approval Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {adminCourses.length === 0 ? (
+                  {isLoadingCourses ? (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-slate-500 text-xs font-medium">
-                        No courses found in database. Courses created by instructors will appear here for admin approval.
+                      <td colSpan={7} className="p-8 text-center text-slate-400">
+                        <div className="py-6">
+                          <EduCoreLoader message="Loading platform courses from database" />
+                        </div>
                       </td>
                     </tr>
-                  ) : (
-                    adminCourses
-                      .filter((c) => (c.title || "").toLowerCase().includes(courseSearch.toLowerCase()))
-                      .map((c) => (
-                        <tr key={c.id} className="hover:bg-slate-900/50">
+                  ) : (() => {
+                    const filtered = adminCourses.filter((c) => {
+                      const matchesSearch = (c.title || "").toLowerCase().includes(courseSearch.toLowerCase());
+                      const st = String(c.status || "pending").toLowerCase();
+                      const isPub = st === "published" || st === "approved";
+                      const isPend = st === "pending";
+                      const isDraftOrRej = st === "draft" || st === "rejected" || st === "archived";
+
+                      let matchesStatus = true;
+                      if (courseStatusTab === "pending") matchesStatus = isPend;
+                      else if (courseStatusTab === "published") matchesStatus = isPub;
+                      else if (courseStatusTab === "draft") matchesStatus = isDraftOrRej;
+
+                      return matchesSearch && matchesStatus;
+                    });
+
+                    if (filtered.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={7} className="p-8 text-center text-slate-500 text-xs font-medium">
+                            No courses match the selected filter.
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return filtered.map((c) => {
+                      const st = String(c.status || "pending").toLowerCase();
+                      const isPub = st === "published" || st === "approved";
+                      const isPend = st === "pending";
+                      const isRej = st === "rejected";
+
+                      return (
+                        <tr key={c.id || c._id} className="hover:bg-slate-900/50">
                           <td className="p-3 font-bold text-white flex items-center gap-3">
                             <img
-                              src={c.thumbnail && c.thumbnail.startsWith("/") ? `${API_BASE_URL.replace("/api", "")}${c.thumbnail}` : c.thumbnail || "https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=400"}
-                              className="w-12 h-8 rounded object-cover border border-purple-500/30"
+                              src={
+                                c.thumbnail && c.thumbnail.startsWith("/")
+                                  ? `${API_BASE_URL.replace("/api", "")}${c.thumbnail}`
+                                  : c.thumbnail || "https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=400"
+                              }
+                              className="w-12 h-8 rounded object-cover border border-purple-500/30 shrink-0"
                               alt={c.title}
                             />
                             <span className="truncate max-w-xs">{c.title}</span>
                           </td>
-                        <td className="p-3">{c.teacher}</td>
-                        <td className="p-3">{c.category}</td>
-                        <td className="p-3 font-bold text-emerald-400">${c.price}</td>
-                        <td className="p-3">
-                          <button
-                            onClick={() => handleToggleFeatureCourse(c.id)}
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              c.isFeatured
-                                ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                                : "bg-slate-800 text-slate-400"
-                            }`}
-                          >
-                            {c.isFeatured ? "⭐ Featured" : "Standard"}
-                          </button>
-                        </td>
-                        <td className="p-3">
-                          {(() => {
-                            const st = String(c.status || "pending").toLowerCase();
-                            const isPub = st === "published" || st === "approved";
-                            const isPend = st === "pending";
-                            return (
-                              <span
-                                className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase ${
-                                  isPub
-                                    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                                    : isPend
-                                    ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                                    : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
-                                }`}
+                          <td className="p-3">{c.teacher}</td>
+                          <td className="p-3">{c.category}</td>
+                          <td className="p-3 font-bold text-emerald-400">${c.price}</td>
+                          <td className="p-3">
+                            <button
+                              onClick={() => handleToggleFeatureCourse(c.id || c._id)}
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                c.isFeatured
+                                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                                  : "bg-slate-800 text-slate-400"
+                              }`}
+                            >
+                              {c.isFeatured ? "⭐ Featured" : "Standard"}
+                            </button>
+                          </td>
+                          <td className="p-3">
+                            <span
+                              className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border inline-flex items-center gap-1.5 ${
+                                isPub
+                                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                                  : isPend
+                                    ? "bg-amber-500/15 text-amber-300 border-amber-500/30 animate-pulse"
+                                    : isRej
+                                      ? "bg-rose-500/15 text-rose-400 border-rose-500/30"
+                                      : "bg-slate-800 text-slate-300 border-slate-700"
+                              }`}
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${isPub ? "bg-emerald-400" : isPend ? "bg-amber-400" : isRej ? "bg-rose-400" : "bg-slate-400"}`} />
+                              <span>{isPub ? "Published" : isPend ? "Pending Approval" : isRej ? "Rejected" : "Draft"}</span>
+                            </span>
+                          </td>
+                          <td className="p-3 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {!isPub ? (
+                                <button
+                                  onClick={() => handleCourseStatusChange(c.id || c._id, "published")}
+                                  className="px-2.5 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500 hover:text-white border border-emerald-500/30 font-bold transition flex items-center gap-1 text-[11px] shadow-sm"
+                                  title="Approve and Publish course to catalog"
+                                >
+                                  <CheckCircle className="w-3.5 h-3.5" />
+                                  <span>Approve & Publish</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleCourseStatusChange(c.id || c._id, "draft")}
+                                  className="px-2.5 py-1.5 rounded-xl bg-amber-500/20 text-amber-300 hover:bg-amber-500 hover:text-slate-950 border border-amber-500/30 font-bold transition text-[11px] shadow-sm"
+                                  title="Unpublish course to draft"
+                                >
+                                  Unpublish (Draft)
+                                </button>
+                              )}
+
+                              {isPend && (
+                                <button
+                                  onClick={() => handleCourseStatusChange(c.id || c._id, "rejected")}
+                                  className="px-2.5 py-1.5 rounded-xl bg-rose-500/20 text-rose-300 hover:bg-rose-500 hover:text-white border border-rose-500/30 font-bold transition text-[11px]"
+                                  title="Reject course"
+                                >
+                                  Reject
+                                </button>
+                              )}
+
+                              <button
+                                onClick={() => handleDeleteCourse(c.id || c._id)}
+                                className="px-2 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-rose-400 hover:bg-rose-500/20 hover:border-rose-500/30 font-bold transition"
+                                title="Delete Course"
                               >
-                                {isPub ? "PUBLISHED" : isPend ? "PENDING APPROVAL" : "REJECTED"}
-                              </span>
-                            );
-                          })()}
-                        </td>
-                        <td className="p-3 text-right space-x-1">
-                          {(() => {
-                            const st = String(c.status || "pending").toLowerCase();
-                            const isPub = st === "published" || st === "approved";
-                            return (
-                              <>
-                                {!isPub && (
-                                  <button
-                                    onClick={() => handleCourseStatusChange(c.id, "published")}
-                                    className="px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 font-bold hover:bg-emerald-500/30"
-                                  >
-                                    Approve
-                                  </button>
-                                )}
-                                {isPub && (
-                                  <button
-                                    onClick={() => handleCourseStatusChange(c.id, "rejected")}
-                                    className="px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 font-bold hover:bg-amber-500/30"
-                                  >
-                                    Reject
-                                  </button>
-                                )}
-                              </>
-                            );
-                          })()}
-                          <button
-                            onClick={() => handleDeleteCourse(c.id)}
-                            className="px-2.5 py-1 rounded bg-rose-500/20 text-rose-300 font-bold hover:bg-rose-500/30"
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    )))
-                  }
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
             </div>
@@ -2530,7 +2721,8 @@ function AdminDashboardContent() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    )}
   </>
 );
 }

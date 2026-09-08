@@ -98,8 +98,10 @@ function StudentDashboardContent() {
 
 
       try {
-        // 1. Fetch Courses
-        const courseRes = await fetch(`${API_BASE_URL}/courses`);
+        // 1. Fetch Courses with authorization token
+        const headers: Record<string, string> = {};
+        if (token) headers.Authorization = `Bearer ${token}`;
+        const courseRes = await fetch(`${API_BASE_URL}/courses`, { headers });
         const courseData = await courseRes.json();
         const loadedCourses: CourseType[] = courseData.success && Array.isArray(courseData.courses)
           ? courseData.courses
@@ -316,6 +318,8 @@ function StudentDashboardContent() {
   // Global Academic Summary Statistics
   const totalEnrolled = enrolledCoursesData.length;
   const completedCoursesCount = enrolledCoursesData.filter((c) => c.isCompleted).length;
+  const certificateEligibleCourses = enrolledCoursesData.filter((c) => c.isCompleted && c.hasCertificate);
+  const certificatesCount = certificateEligibleCourses.length;
   const inProgressCoursesCount = totalEnrolled - completedCoursesCount;
   const totalCompletedLessons = Object.values(userProgressMap).reduce((acc, curr) => acc + curr.length, 0);
 
@@ -532,7 +536,7 @@ function StudentDashboardContent() {
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 mt-1">
-                {completedCoursesCount > 0 ? "Verified Certificate Eligible" : "0 Courses Completed"}
+                {certificatesCount > 0 ? `${certificatesCount} Certificate${certificatesCount > 1 ? "s" : ""} Earned` : `${completedCoursesCount} Courses Completed`}
               </p>
             </div>
           </div>
@@ -618,7 +622,7 @@ function StudentDashboardContent() {
                   }`}
                 >
                   <Award className="w-3.5 h-3.5" />
-                  <span>Certificates ({completedCoursesCount})</span>
+                  <span>Certificates ({certificatesCount})</span>
                 </button>
               </div>
 
@@ -1056,9 +1060,9 @@ function StudentDashboardContent() {
                   <span>Certificates & Credentials</span>
                 </h2>
 
-                {completedCoursesCount > 0 ? (
+                {certificatesCount > 0 ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {enrolledCoursesData.filter((c) => c.isCompleted).map((course) => (
+                    {certificateEligibleCourses.map((course) => (
                       <div key={course._id} className="p-5 rounded-2xl bg-slate-950 border border-purple-500/30 space-y-3">
                         <div className="flex items-center justify-between">
                           <Award className="w-6 h-6 text-purple-400" />
@@ -1081,7 +1085,7 @@ function StudentDashboardContent() {
                     <Award className="w-8 h-8 text-slate-600 mx-auto" />
                     <p className="text-sm font-bold text-slate-300">No certificates unlocked yet</p>
                     <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                      Complete 100% of the video lectures, quizzes, and assignments in a course to generate your official verified certificate.
+                      Complete 100% of a course that awards an official completion certificate to view and export your verified credentials.
                     </p>
                   </div>
                 )}

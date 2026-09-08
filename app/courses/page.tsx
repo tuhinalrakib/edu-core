@@ -24,8 +24,12 @@ function CatalogContent() {
     const fetchCatalogData = async () => {
       setIsLoading(true);
       try {
-        // 1. Fetch real courses
-        const res = await fetch(`${API_BASE_URL}/courses`);
+        // 1. Fetch real courses (with user authentication token if logged in)
+        const token = typeof window !== "undefined" ? (localStorage.getItem("educore_token") || localStorage.getItem("token")) : null;
+        const headers: Record<string, string> = {};
+        if (token) headers.Authorization = `Bearer ${token}`;
+
+        const res = await fetch(`${API_BASE_URL}/courses`, { headers });
         const data = await res.json();
         const loadedCourses: CourseType[] = data.success && Array.isArray(data.courses) ? data.courses : [];
         setCourses(loadedCourses);

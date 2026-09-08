@@ -1,13 +1,16 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { UserType } from "@/lib/api";
+import { UserType, API_BASE_URL } from "@/lib/api";
 
 interface AuthContextType {
   user: UserType | null;
   token: string | null;
   isDemo: boolean;
   isLoading: boolean;
+  enrolledCourseIds: string[];
+  isCourseEnrolled: (courseIdOrSlug?: string) => boolean;
+  refreshEnrolledCourses: (activeToken?: string | null) => Promise<void>;
   login: (email: string, role?: "admin" | "teacher" | "student", backendUser?: UserType, backendToken?: string) => void;
   logout: () => void;
   clearDemoSession: () => void;
@@ -23,17 +26,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = useState<string | null>(null);
   const [isDemo, setIsDemo] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [enrolledCourseIds, setEnrolledCourseIds] = useState<string[]>([]);
+
+  const refreshEnrolledCourses = async (activeToken?: string | null) => {
+    const t = activeToken !== undefined ? activeToken : token || (typeof window !== "undefined" ? localStorage.getItem("educore_token") || localStorage.getItem("token") : null);
+    if (!t) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/student/courses`, {
+        headers: { Authorization: `Bearer ${t}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.enrolledCourseIds)) {
+          setEnrolledCourseIds(data.enrolledCourseIds);
+          try {
+            const currentLocal: string[] = JSON.parse(localStorage.getItem("educore_enrolled_courses") || "[]");
+            const merged = Array.from(new Set([...currentLocal, ...data.enrolledCourseIds]));
+            localStorage.setItem("educore_enrolled_courses", JSON.stringify(merged));
+          } catch (e) {}
+        }
+      }
+    } catch (e) {
+      console.warn("Backend fetch enrolled courses:", e);
+    }
+  };
+
+  const isCourseEnrolled = (courseIdOrSlug?: string): boolean => {
+    if (!courseIdOrSlug) return false;
+    const str = String(courseIdOrSlug).toLowerCase();
+    return enrolledCourseIds.some((id) => String(id).toLowerCase() === str);
+  };
 
   useEffect(() => {
     const storedUser = localStorage.getItem("educore_user");
-    const storedToken = localStorage.getItem("educore_token");
+    const storedToken = localStorage.getItem("educore_token") || localStorage.getItem("token");
     const storedIsDemo = localStorage.getItem("educore_is_demo");
 
     if (storedUser && storedToken) {
       try {
-        setUser(JSON.parse(storedUser));
+        const parsed = JSON.parse(storedUser);
+        setUser(parsed);
         setToken(storedToken);
         setIsDemo(storedIsDemo === "true");
+
+        // Populate initial enrolled IDs from stored user if available
+        if (Array.isArray(parsed.enrolledCourses)) {
+          const initialIds = parsed.enrolledCourses.map((c: any) =>
+            typeof c === "object" && c !== null ? c._id || c.slug : String(c)
+          );
+          setEnrolledCourseIds(initialIds);
+        }
+
+        refreshEnrolledCourses(storedToken);
       } catch (e) {
         console.error("Auth hydration error:", e);
       }
@@ -86,7 +130,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsDemo(false);
     localStorage.setItem("educore_user", JSON.stringify(mockUser));
     localStorage.setItem("educore_token", newToken);
+    localStorage.setItem("token", newToken);
     localStorage.setItem("educore_is_demo", "false");
+
+    if (backendToken) {
+      refreshEnrolledCourses(backendToken);
+    }
   };
 
   const switchRole = (newRole: "admin" | "teacher" | "student") => {
@@ -127,6 +176,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsDemo(true);
     localStorage.setItem("educore_user", JSON.stringify(mockUser));
     localStorage.setItem("educore_token", newToken);
+    localStorage.setItem("token", newToken);
     localStorage.setItem("educore_is_demo", "true");
   };
 
@@ -134,8 +184,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     setToken(null);
     setIsDemo(false);
+    setEnrolledCourseIds([]);
     localStorage.removeItem("educore_user");
     localStorage.removeItem("educore_token");
+    localStorage.removeItem("token");
     localStorage.removeItem("educore_is_demo");
     if (typeof window !== "undefined") {
       window.location.href = "/login";
@@ -146,8 +198,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     setToken(null);
     setIsDemo(false);
+    setEnrolledCourseIds([]);
     localStorage.removeItem("educore_user");
     localStorage.removeItem("educore_token");
+    localStorage.removeItem("token");
     localStorage.removeItem("educore_is_demo");
   };
 
@@ -165,6 +219,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         token,
         isDemo,
         isLoading,
+        enrolledCourseIds,
+        isCourseEnrolled,
+        refreshEnrolledCourses,
         login,
         logout,
         clearDemoSession,

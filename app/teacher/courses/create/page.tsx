@@ -80,7 +80,7 @@ function CourseBuilderContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editCourseId = searchParams.get("id");
-  const { user } = useAuth();
+  const { user, token } = useAuth();
 
   const [title, setTitle] = useState(editCourseId ? "" : "React 19 & Next.js 15 Full-Stack SaaS Masterclass");
   const [category, setCategory] = useState("Web Development");
@@ -90,7 +90,8 @@ function CourseBuilderContent() {
     editCourseId ? "" : "Learn to build full-stack web applications with React 19, Next.js 15 App Router, TypeScript, and Express."
   );
   const [thumbnail, setThumbnail] = useState("");
-  const [courseStatus, setCourseStatus] = useState<string>("Published");
+  const [courseStatus, setCourseStatus] = useState<string>("pending");
+  const [hasCertificate, setHasCertificate] = useState<boolean>(false);
 
   const [categoriesList, setCategoriesList] = useState<string[]>([
     "Web Development",
@@ -102,6 +103,7 @@ function CourseBuilderContent() {
   ]);
 
   const [allTeacherCourses, setAllTeacherCourses] = useState<any[]>([]);
+  const [isFetchingCourse, setIsFetchingCourse] = useState<boolean>(Boolean(editCourseId));
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -146,13 +148,19 @@ function CourseBuilderContent() {
 
   // Fetch existing course details if editing (id present in searchParams)
   useEffect(() => {
-    if (!editCourseId) return;
+    if (!editCourseId) {
+      setIsFetchingCourse(false);
+      return;
+    }
 
     const loadExistingCourse = async () => {
+      setIsFetchingCourse(true);
       let targetCourse: any = null;
 
       try {
-        const res = await fetch(`${API_BASE_URL}/courses/${editCourseId}`);
+        const res = await fetch(`${API_BASE_URL}/courses/${editCourseId}?t=${Date.now()}`, {
+          cache: "no-store",
+        });
         if (res.ok) {
           const data = await res.json();
           if (data.success && data.course) {
@@ -166,7 +174,7 @@ function CourseBuilderContent() {
       if (!targetCourse) {
         try {
           const localCreated = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
-          targetCourse = localCreated.find((c: any) => String(c._id) === String(editCourseId));
+          targetCourse = localCreated.find((c: any) => String(c._id) === String(editCourseId) || String(c.id) === String(editCourseId));
         } catch (e) { }
       }
 
@@ -183,10 +191,12 @@ function CourseBuilderContent() {
           setThumbnail(fullUrl);
         }
         if (targetCourse.status) setCourseStatus(targetCourse.status);
+        if (targetCourse.hasCertificate !== undefined) setHasCertificate(Boolean(targetCourse.hasCertificate));
         if (Array.isArray(targetCourse.sections) && targetCourse.sections.length > 0) {
           setSections(targetCourse.sections);
         }
       }
+      setIsFetchingCourse(false);
     };
 
     loadExistingCourse();
@@ -670,8 +680,8 @@ function CourseBuilderContent() {
   };
 
   // Course Publish Form Handler
-  const handleSaveCourse = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveCourse = async (e?: React.FormEvent, forcedStatus?: string) => {
+    if (e && e.preventDefault) e.preventDefault();
 
     if (!title.trim()) {
       Swal.fire({
@@ -685,6 +695,8 @@ function CourseBuilderContent() {
       return;
     }
 
+    const effectiveStatus = forcedStatus || (editCourseId ? courseStatus : "pending");
+
     const newCourseObj = {
       ...(editCourseId ? { _id: editCourseId } : { _id: `course-${Date.now()}` }),
       title,
@@ -693,7 +705,8 @@ function CourseBuilderContent() {
       price: Number(price) || 0,
       description,
       thumbnail: thumbnail || "",
-      status: courseStatus,
+      status: effectiveStatus,
+      hasCertificate: Boolean(hasCertificate),
       teacher: {
         name: user?.name || "Asma Akter",
         email: user?.email || "asmaulhosna77901@gmail.com",
@@ -724,9 +737,12 @@ function CourseBuilderContent() {
       const endpoint = editCourseId ? `${API_BASE_URL}/courses/${editCourseId}` : `${API_BASE_URL}/courses`;
       const method = editCourseId ? "PUT" : "POST";
 
+      const headers: any = { "Content-Type": "application/json" };
+      if (token) headers.Authorization = `Bearer ${token}`;
+
       const res = await fetch(endpoint, {
         method,
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(newCourseObj),
       });
 
@@ -748,10 +764,26 @@ function CourseBuilderContent() {
         localStorage.setItem("educore_created_courses", JSON.stringify([data.course, ...filtered]));
       }
 
+      // Dispatch event to immediately notify navbar and other listeners
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("educore_new_course"));
+      }
+
+      const isPending = effectiveStatus.toLowerCase() === "pending";
+      const isDraft = effectiveStatus.toLowerCase() === "draft";
+
       Swal.fire({
         icon: "success",
-        title: editCourseId ? "Course Updated! 🎉" : "Course Saved & Published! 🎉",
-        text: `Course "${title}" has been ${editCourseId ? "updated" : "saved"} successfully.`,
+        title: isPending
+          ? "Submitted for Admin Approval! 🚀"
+          : isDraft
+            ? "Saved as Draft 📝"
+            : "Course Updated! 🎉",
+        text: isPending
+          ? `Course "${title}" has been submitted for Admin Review. Once an admin approves it, it will automatically be published to the catalog.`
+          : isDraft
+            ? `Course "${title}" is saved as a Draft. You can submit it for approval whenever you are ready.`
+            : `Course "${title}" has been updated successfully.`,
         background: "#0f172a",
         color: "#ffffff",
         confirmButtonColor: "#7c3aed",
@@ -775,14 +807,16 @@ function CourseBuilderContent() {
 
   return (
     <>
-      {(isUploadingVideo || isUploadingThumbnail || isSavingCourse) && (
+      {(isFetchingCourse || isUploadingVideo || isUploadingThumbnail || isSavingCourse) && (
         <EduCoreLoader
           message={
-            isSavingCourse
-              ? "Saving & Publishing Course to EduCore Database..."
-              : isUploadingThumbnail
-                ? "Uploading Course Thumbnail to Cloudinary..."
-                : "Uploading Lesson Video to Server..."
+            isFetchingCourse
+              ? "Loading Course Details & Curriculum..."
+              : isSavingCourse
+                ? "Submitting Course to Database..."
+                : isUploadingThumbnail
+                  ? "Uploading Course Thumbnail to Cloudinary..."
+                  : "Uploading Lesson Video to Server..."
           }
           fullScreen={true}
         />
@@ -821,21 +855,34 @@ function CourseBuilderContent() {
               {editCourseId ? "Edit Course Builder" : "Full-Featured Course Builder"}
             </h1>
             <p className="text-xs text-slate-400 mt-1">
-              Design sections, video lessons (Cloudinary/YouTube/Vimeo), downloadable resources, interactive quizzes, and assignments.
+              Design sections, video lessons, quizzes, and submit for Admin Approval before publishing.
             </p>
           </div>
 
           <button
             type="button"
-            onClick={handleSaveCourse}
+            onClick={() => handleSaveCourse()}
             className="px-6 py-3.5 rounded-xl text-xs font-bold text-white gradient-button flex items-center justify-center gap-2 shadow-xl shadow-purple-600/30 shrink-0"
           >
             <CheckCircle className="w-4 h-4" />
-            <span>{editCourseId ? "Update Course Changes" : "Save & Publish Course"}</span>
+            <span>{editCourseId ? "Update Course Details" : "Submit for Admin Approval"}</span>
           </button>
         </div>
 
-        <form onSubmit={handleSaveCourse} className="space-y-8">
+        {/* Admin Approval Notice Banner */}
+        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs flex items-start sm:items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0 text-amber-400 text-sm">
+            🛡️
+          </div>
+          <div>
+            <h4 className="font-bold text-amber-300 text-xs">Admin Quality Review & Approval</h4>
+            <p className="text-slate-300 text-[11px] mt-0.5 leading-relaxed">
+              To maintain course standards, newly created courses are submitted to EduCore Administrators for review. Once an Admin approves the course, it will immediately be published and visible on the public Explore Courses page.
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={(e) => handleSaveCourse(e, editCourseId ? courseStatus : "pending")} className="space-y-8">
           {/* 1. BASIC COURSE DETAILS */}
           <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-6">
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
@@ -898,16 +945,28 @@ function CourseBuilderContent() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Course Status</label>
-                <select
-                  value={courseStatus}
-                  onChange={(e) => setCourseStatus(e.target.value as any)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-xs font-bold text-white focus:outline-none focus:border-purple-500"
-                >
-                  <option value="Published">Published (Live on Catalog)</option>
-                  <option value="Draft">Draft (Private)</option>
-                  <option value="Archived">Archived</option>
-                </select>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Course Status <span className="text-[10px] text-amber-400 font-normal">(Admin Controlled)</span>
+                </label>
+                <div className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs font-bold flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {(() => {
+                      const st = String(courseStatus || "pending").toLowerCase();
+                      const isPub = st === "published" || st === "approved";
+                      return (
+                        <>
+                          <span className={`w-2 h-2 rounded-full ${isPub ? "bg-emerald-400" : "bg-amber-400 animate-pulse"}`} />
+                          <span className={isPub ? "text-emerald-300 font-bold" : "text-amber-300 font-bold"}>
+                            {isPub ? "Published (Live on Catalog)" : "Pending Admin Approval"}
+                          </span>
+                        </>
+                      );
+                    })()}
+                  </div>
+                  <span className="text-[10px] text-slate-500 font-normal">
+                    {String(courseStatus).toLowerCase() === "published" ? "Approved by Admin" : "By Default Pending"}
+                  </span>
+                </div>
               </div>
 
               <div className="sm:col-span-2">
@@ -995,6 +1054,47 @@ function CourseBuilderContent() {
                   onChange={(e) => setDescription(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-purple-500"
                 />
+              </div>
+
+              {/* Course Certificate Toggle */}
+              <div className="sm:col-span-2 bg-slate-950 p-4 rounded-2xl border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                      hasCertificate
+                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                        : "bg-slate-900 text-slate-500 border border-slate-800"
+                    }`}
+                  >
+                    <Award className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-bold text-white">Course Completion Certificate</h4>
+                      <span
+                        className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                          hasCertificate
+                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                            : "bg-slate-800 text-slate-400"
+                        }`}
+                      >
+                        {hasCertificate ? "Enabled (Issued on 100% Completion)" : "Disabled (No Certificate)"}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Enable this if students who complete 100% of the lessons, quizzes, and assignments should receive an official verifiable certificate.
+                    </p>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={hasCertificate}
+                    onChange={(e) => setHasCertificate(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                </label>
               </div>
             </div>
           </div>
@@ -1285,13 +1385,15 @@ function CourseBuilderContent() {
           </div>
 
           {/* Submit Form Button */}
-          <button
-            type="submit"
-            className="w-full py-4 rounded-2xl text-sm font-black text-white gradient-button shadow-2xl shadow-purple-600/30 flex items-center justify-center gap-2"
-          >
-            <CheckCircle className="w-5 h-5" />
-            <span>Save & Publish Complete Course</span>
-          </button>
+          <div className="pt-2">
+            <button
+              type="submit"
+              className="w-full py-4 rounded-2xl text-xs font-black text-white gradient-button shadow-2xl shadow-purple-600/30 flex items-center justify-center gap-2"
+            >
+              <CheckCircle className="w-4 h-4" />
+              <span>{editCourseId ? "Update Course Details" : "Submit Course for Admin Approval"}</span>
+            </button>
+          </div>
         </form>
 
         {/* ========================================================================= */}

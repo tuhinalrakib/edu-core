@@ -11,8 +11,8 @@ interface CourseCardProps {
 }
 
 export const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
-  const { user } = useAuth();
-  const [isEnrolled, setIsEnrolled] = useState(false);
+  const { user, isCourseEnrolled } = useAuth();
+  const [isEnrolled, setIsEnrolled] = useState(Boolean(course.isEnrolled));
 
   useEffect(() => {
     if (!user || user.role !== "student") {
@@ -20,7 +20,23 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
       return;
     }
 
+    // 1. Direct backend flag on course object
+    if (course.isEnrolled) {
+      setIsEnrolled(true);
+      return;
+    }
+
+    // 2. Real AuthContext backend enrolled courses list
     const courseKey = course.slug || course._id;
+    const enrolledViaContext =
+      (isCourseEnrolled && (isCourseEnrolled(course._id) || isCourseEnrolled(course.slug) || isCourseEnrolled(courseKey))) || false;
+
+    if (enrolledViaContext) {
+      setIsEnrolled(true);
+      return;
+    }
+
+    // 3. Fallback to localStorage
     try {
       const storedEnrolled: string[] = JSON.parse(localStorage.getItem("educore_enrolled_courses") || "[]");
       const hasProgress = Boolean(localStorage.getItem(`educore_progress_${courseKey}`));
@@ -34,7 +50,7 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
         setIsEnrolled(true);
       }
     } catch (e) {}
-  }, [user, course]);
+  }, [user, course, isCourseEnrolled]);
 
   const isMongoId = (str: any) => typeof str === "string" && /^[0-9a-fA-F]{24}$/.test(str);
 

@@ -588,30 +588,41 @@ export default function TeacherDashboard() {
   };
 
   const handleStatusChange = async (courseId: string, newStatus: string) => {
+    const normStatus = newStatus.toLowerCase();
     setCourses((prev) => {
-      const updated = prev.map((c) => (c._id === courseId ? { ...c, status: newStatus } : c));
+      const updated = prev.map((c) => (c._id === courseId ? { ...c, status: normStatus } : c));
       localStorage.setItem("educore_created_courses", JSON.stringify(updated));
       return updated;
     });
 
     try {
+      const token = typeof window !== "undefined" ? (localStorage.getItem("token") || localStorage.getItem("educore_token")) : null;
+      const headers: any = { "Content-Type": "application/json" };
+      if (token) headers.Authorization = `Bearer ${token}`;
+
       await fetch(`${API_BASE_URL}/courses/${courseId}/status`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
+        headers,
+        body: JSON.stringify({ status: normStatus }),
       });
     } catch (err) {
       console.warn("Backend status update failed:", err);
     }
 
+    const isPending = normStatus === "pending";
+    const isDraft = normStatus === "draft";
+
     Swal.fire({
       icon: "success",
-      title: `Course Status Updated`,
-      text: `Course marked as ${newStatus.toUpperCase()}`,
+      title: isPending ? "Submitted for Admin Approval! 🚀" : `Course Status Updated`,
+      text: isPending
+        ? "Course submitted to Admin. It will be published to the catalog once approved."
+        : isDraft
+          ? "Course moved to Draft mode."
+          : `Course marked as ${newStatus.toUpperCase()}`,
       background: "#0f172a",
       color: "#ffffff",
       confirmButtonColor: "#7c3aed",
-      timer: 1500,
     });
   };
 
@@ -921,35 +932,45 @@ export default function TeacherDashboard() {
                             {course.title ? course.title.charAt(0) : "C"}
                           </div>
                         )}
-                        <span className="truncate max-w-xs">{course.title}</span>
+                        <div className="flex flex-col min-w-0">
+                          <span className="truncate max-w-xs">{course.title}</span>
+                          {course.hasCertificate && (
+                            <span className="text-[10px] font-semibold text-emerald-400 flex items-center gap-1">
+                              <Award className="w-3 h-3" /> Certificate Enabled
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="p-3">{course.category}</td>
                       <td className="p-3 font-bold text-emerald-400">${course.price}</td>
                       <td className="p-3 font-medium">{course.totalStudents || 0}</td>
                       <td className="p-3 font-bold text-amber-400">{course.rating || "5.0"} ★</td>
                       <td className="p-3">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${course.status === "Published"
-                              ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
-                              : course.status === "Draft"
-                                ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
-                                : "bg-slate-800 text-slate-400 border-slate-700"
-                            }`}
-                        >
-                          {course.status}
-                        </span>
+                        {(() => {
+                          const st = String(course.status || "pending").toLowerCase();
+                          const isPub = st === "published" || st === "approved";
+                          const isPend = st === "pending";
+                          const isRej = st === "rejected";
+                          return (
+                            <span
+                              className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border inline-flex items-center gap-1.5 ${
+                                isPub
+                                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                                  : isPend
+                                    ? "bg-amber-500/20 text-amber-300 border-amber-500/30 animate-pulse"
+                                    : isRej
+                                      ? "bg-rose-500/20 text-rose-300 border-rose-500/30"
+                                      : "bg-slate-800 text-slate-300 border-slate-700"
+                              }`}
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${isPub ? "bg-emerald-400" : isPend ? "bg-amber-400" : isRej ? "bg-rose-400" : "bg-slate-400"}`} />
+                              <span>{isPub ? "Published" : isPend ? "Pending Approval" : isRej ? "Rejected" : "Draft"}</span>
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="p-3">
                         <div className="flex items-center justify-end gap-2">
-                          <select
-                            value={course.status}
-                            onChange={(e) => handleStatusChange(course._id, e.target.value)}
-                            className="bg-slate-900 border border-slate-800 text-slate-300 rounded-xl px-3 py-1.5 text-[11px] font-semibold focus:outline-none focus:border-purple-500 cursor-pointer shadow-sm"
-                          >
-                            <option value="Published">Publish</option>
-                            <option value="Draft">Draft</option>
-                            <option value="Archived">Archive</option>
-                          </select>
                           <Link
                             href={`/student/learn/${course.slug || course._id}`}
                             className="w-8 h-8 rounded-xl bg-slate-900 border border-slate-800 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 hover:border-emerald-500/30 transition-all flex items-center justify-center shadow-sm"

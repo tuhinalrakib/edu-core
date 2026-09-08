@@ -187,8 +187,9 @@ function UdemyLearningPlayerContent() {
   const [quizPassedMap, setQuizPassedMap] = useState<Record<string, boolean>>({});
   const [assignmentSubmittedMap, setAssignmentSubmittedMap] = useState<Record<string, boolean>>({});
 
-  // Certificate Modal
+  // Certificate & Completion Modals
   const [showCertificateModal, setShowCertificateModal] = useState(false);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
 
   // Load Course & Progress Data
   useEffect(() => {
@@ -203,9 +204,9 @@ function UdemyLearningPlayerContent() {
       } catch (e) { }
 
       // 2. Try fetching from backend API
+      const token = typeof window !== "undefined" ? (localStorage.getItem("educore_token") || localStorage.getItem("token")) : null;
       if (!foundCourse) {
         try {
-          const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
           const res = await fetch(`${API_BASE_URL}/courses/${targetId}?t=${Date.now()}`, {
             headers: token ? { Authorization: `Bearer ${token}` } : {},
           });
@@ -218,6 +219,29 @@ function UdemyLearningPlayerContent() {
 
       setCourse(foundCourse);
 
+      // Guarantee backend enrollment persistence for this student in MongoDB
+      if (token && targetId) {
+        try {
+          await fetch(`${API_BASE_URL}/student/enroll`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ courseId: foundCourse?._id || targetId }),
+          });
+        } catch (e) { }
+      }
+
+      // Sync to localStorage
+      try {
+        const storedEnrolled: string[] = JSON.parse(localStorage.getItem("educore_enrolled_courses") || "[]");
+        if (!storedEnrolled.includes(targetId)) storedEnrolled.push(targetId);
+        if (foundCourse?._id && !storedEnrolled.includes(foundCourse._id)) storedEnrolled.push(foundCourse._id);
+        if (foundCourse?.slug && !storedEnrolled.includes(foundCourse.slug)) storedEnrolled.push(foundCourse.slug);
+        localStorage.setItem("educore_enrolled_courses", JSON.stringify(storedEnrolled));
+      } catch (e) { }
+
       // 3. Load Saved Progress (Completed Lessons)
       let savedCompleted: string[] = [];
       try {
@@ -227,7 +251,6 @@ function UdemyLearningPlayerContent() {
         }
       } catch (e) { }
 
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
       if (token && targetId) {
         try {
           const pRes = await fetch(`${API_BASE_URL}/student/progress/${targetId}`, {
@@ -468,7 +491,7 @@ function UdemyLearningPlayerContent() {
 
       // Save to backend
       try {
-        const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+        const token = typeof window !== "undefined" ? (localStorage.getItem("educore_token") || localStorage.getItem("token")) : null;
         if (token && targetId) {
           await fetch(`${API_BASE_URL}/student/progress`, {
             method: "POST",
@@ -565,7 +588,11 @@ function UdemyLearningPlayerContent() {
       }
     } else {
       // Course Completed!
-      setShowCertificateModal(true);
+      if (course?.hasCertificate) {
+        setShowCertificateModal(true);
+      } else {
+        setShowCompletionModal(true);
+      }
     }
   };
 
@@ -618,16 +645,26 @@ function UdemyLearningPlayerContent() {
           </div>
         </div>
 
-        {/* Certificate Button shown ONLY when course is 100% complete */}
+        {/* Certificate / Completion Button shown ONLY when course is 100% complete */}
         <div className="flex items-center gap-3">
           {progressPercent >= 100 ? (
-            <button
-              onClick={() => setShowCertificateModal(true)}
-              className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-all cursor-pointer ring-2 ring-emerald-400/40"
-            >
-              <Award className="w-4 h-4" />
-              <span>Get Certificate</span>
-            </button>
+            course?.hasCertificate ? (
+              <button
+                onClick={() => setShowCertificateModal(true)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-all cursor-pointer ring-2 ring-emerald-400/40"
+              >
+                <Award className="w-4 h-4" />
+                <span>Get Certificate</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowCompletionModal(true)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-emerald-300 bg-emerald-950/70 border border-emerald-500/40 shadow-lg flex items-center gap-2 transition-all cursor-pointer hover:bg-emerald-900/50"
+              >
+                <CheckCircle className="w-4 h-4 text-emerald-400" />
+                <span>Course Completed (100%)</span>
+              </button>
+            )
           ) : (
             <div className="px-3.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-[11px] font-bold text-slate-400 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-amber-400" />
@@ -1027,8 +1064,8 @@ function UdemyLearningPlayerContent() {
         </div>
       </div>
 
-      {/* Certificate Modal */}
-      {showCertificateModal && (
+      {/* Certificate Modal - Only accessible if course actually has a certificate configured */}
+      {showCertificateModal && course?.hasCertificate && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="glass-panel max-w-xl w-full p-8 rounded-3xl border border-purple-500/40 shadow-2xl text-center space-y-6">
             <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
@@ -1050,8 +1087,36 @@ function UdemyLearningPlayerContent() {
             <div className="flex gap-3">
               <button
                 onClick={() => {
-                  alert("Exporting PDF Certificate...");
                   setShowCertificateModal(false);
+                  Swal.fire({
+                    title: "Generating Certificate...",
+                    text: "Please wait while your verified certificate is being prepared.",
+                    background: "#0f172a",
+                    color: "#ffffff",
+                    showConfirmButton: false,
+                    timer: 1200,
+                    timerProgressBar: true,
+                    didOpen: () => {
+                      Swal.showLoading();
+                    },
+                  }).then(() => {
+                    Swal.fire({
+                      icon: "success",
+                      title: "🎓 Certificate Exported!",
+                      html: `<p style="font-size: 14px; color: #cbd5e1;">Your official Certificate of Completion for <strong style="color: #a855f7;">${course.title}</strong> has been generated successfully.</p>`,
+                      background: "#0f172a",
+                      color: "#ffffff",
+                      confirmButtonColor: "#7c3aed",
+                      confirmButtonText: "Print / Save PDF",
+                      showCancelButton: true,
+                      cancelButtonText: "Close",
+                      cancelButtonColor: "#334155",
+                    }).then((result) => {
+                      if (result.isConfirmed) {
+                        window.print();
+                      }
+                    });
+                  });
                 }}
                 className="flex-1 py-3 rounded-xl text-xs font-bold text-white gradient-button flex items-center justify-center gap-2"
               >
@@ -1060,6 +1125,53 @@ function UdemyLearningPlayerContent() {
               </button>
               <button
                 onClick={() => setShowCertificateModal(false)}
+                className="px-5 py-3 rounded-xl text-xs font-bold text-slate-300 bg-slate-800 hover:bg-slate-700"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Course Completion Celebration Modal (when course has NO certificate configured) */}
+      {showCompletionModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="glass-panel max-w-md w-full p-8 rounded-3xl border border-emerald-500/40 shadow-2xl text-center space-y-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto ring-8 ring-emerald-500/10">
+              <CheckCircle className="w-10 h-10 text-emerald-400" />
+            </div>
+
+            <div>
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
+                Course 100% Completed
+              </span>
+              <h2 className="text-2xl font-black text-white mt-2">Congratulations, {user?.name || "Student"}!</h2>
+              <p className="text-xs text-slate-400 mt-1">
+                You have completed all lessons and requirements in <strong className="text-white">{course.title}</strong>.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 text-left space-y-2 text-xs">
+              <div className="flex justify-between items-center text-slate-400">
+                <span>Instructor</span>
+                <span className="font-bold text-white">{course.teacher?.name || course.teacherName || "EduCore Instructor"}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-400">
+                <span>Total Lessons</span>
+                <span className="font-bold text-emerald-400">{completedLessons.length} / {totalLessonsCount} Completed</span>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <Link
+                href="/student/dashboard"
+                className="flex-1 py-3 rounded-xl text-xs font-bold text-white gradient-button flex items-center justify-center gap-2"
+              >
+                <span>Back to Dashboard</span>
+              </Link>
+              <button
+                onClick={() => setShowCompletionModal(false)}
                 className="px-5 py-3 rounded-xl text-xs font-bold text-slate-300 bg-slate-800 hover:bg-slate-700"
               >
                 Close

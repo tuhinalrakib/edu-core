@@ -32,7 +32,7 @@ import Swal from "sweetalert2";
 export default function CourseDetailsPage() {
   const params = useParams();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, refreshEnrolledCourses } = useAuth();
 
   const [course, setCourse] = useState<CourseType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -277,6 +277,10 @@ export default function CourseDetailsPage() {
           },
           body: JSON.stringify({ courseId: course._id || course.slug }),
         });
+
+        if (refreshEnrolledCourses) {
+          await refreshEnrolledCourses(token);
+        }
       }
 
       setIsEnrolled(true);
@@ -751,10 +755,12 @@ export default function CourseDetailsPage() {
                   <Clock className="w-4 h-4 text-purple-400" />
                   <span>Full Lifetime Access</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Award className="w-4 h-4 text-emerald-400" />
-                  <span>Certificate of Completion</span>
-                </div>
+                {course.hasCertificate && (
+                  <div className="flex items-center gap-2">
+                    <Award className="w-4 h-4 text-emerald-400" />
+                    <span>Certificate of Completion</span>
+                  </div>
+                )}
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-blue-400" />
                   <span>30-Day Money-Back Guarantee</span>

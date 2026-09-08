@@ -89,52 +89,142 @@ export const Navbar: React.FC = () => {
 
     const fetchNotifications = async () => {
       const notifList: any[] = [];
+      const activeToken =
+        token ||
+        (typeof window !== "undefined"
+          ? localStorage.getItem("educore_token") || localStorage.getItem("token")
+          : null);
 
       try {
+        const headers: any = {};
+        if (activeToken) headers.Authorization = `Bearer ${activeToken}`;
+
         const res = await fetch(`${API_BASE_URL}/courses?status=all&t=${Date.now()}`, {
           cache: "no-store",
+          headers,
         });
         const data = await res.json();
+        let coursesList: any[] = [];
         if (data.success && Array.isArray(data.courses)) {
-          if (user.role === "admin") {
-            const pendingCourses = data.courses.filter(
-              (c: any) => String(c.status).toLowerCase() === "pending"
+          coursesList = [...data.courses];
+        }
+
+        // Also try fetching /api/admin/courses if user is admin
+        if (user.role === "admin" && activeToken) {
+          try {
+            const adminRes = await fetch(`${API_BASE_URL}/admin/courses?t=${Date.now()}`, {
+              headers: { Authorization: `Bearer ${activeToken}` },
+              cache: "no-store",
+            });
+            const adminData = await adminRes.json();
+            if (adminData.success && Array.isArray(adminData.courses)) {
+              adminData.courses.forEach((ac: any) => {
+                if (!coursesList.some((c) => String(c._id || c.id) === String(ac._id || ac.id))) {
+                  coursesList.unshift(ac);
+                }
+              });
+            }
+          } catch (adminFetchErr) {}
+        }
+
+        // Merge courses from LocalStorage for instant real-time sync across tabs
+        try {
+          const localCourses: any[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
+          localCourses.forEach((lc) => {
+            const existingIdx = coursesList.findIndex(
+              (c) => String(c._id) === String(lc._id) || String(c.id) === String(lc.id) || (lc.title && c.title === lc.title)
             );
-            pendingCourses.forEach((c: any) => {
-              const teacherName =
-                typeof c.teacher === "object" ? c.teacher?.name || "Instructor" : c.teacher || "Instructor";
+            if (existingIdx === -1) {
+              coursesList.unshift(lc);
+            } else if (lc.status) {
+              coursesList[existingIdx] = { ...coursesList[existingIdx], status: lc.status };
+            }
+          });
+        } catch (e) {}
+
+        if (user.role === "admin") {
+          // Sort courses so newest appear first
+          const sortedCourses = [...coursesList].sort((a: any, b: any) => {
+            const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return timeB - timeA;
+          });
+
+          sortedCourses.forEach((c: any) => {
+            const st = String(c.status || "pending").toLowerCase();
+            const teacherName =
+              typeof c.teacher === "object"
+                ? c.teacher?.name || c.teacher?.email || "Instructor"
+                : c.teacher || c.teacherName || "Instructor";
+
+            if (st === "pending") {
               notifList.push({
-                id: `pending-${c._id || c.slug}`,
-                title: "Course Pending Approval",
+                id: `pending-${c._id || c.id || c.slug || c.title}`,
+                title: "New Course Pending Approval ⏳",
                 desc: `"${c.title}" was submitted by ${teacherName} for review.`,
                 time: "Action Required",
                 link: "/admin/dashboard?tab=courses",
                 icon: Clock,
                 color: "text-amber-400 bg-amber-500/10 border-amber-500/30",
               });
-            });
-          } else if (user.role === "teacher") {
-            const myCourses = data.courses.filter((c: any) => {
-              const tId = typeof c.teacher === "object" ? c.teacher?._id || c.teacher?.id : c.teacher;
-              return tId === user.id || tId === (user as any)._id;
-            });
-            myCourses.forEach((c: any) => {
-              const isPub = String(c.status).toLowerCase() === "published";
+            } else if (st === "published" || st === "approved") {
               notifList.push({
-                id: `teacher-course-${c._id || c.slug}`,
-                title: isPub ? "Course Live on Platform" : "Course Under Admin Review",
-                desc: isPub
-                  ? `"${c.title}" is currently published and open for enrollments.`
-                  : `"${c.title}" is waiting for admin approval.`,
-                time: isPub ? "Active" : "Pending",
-                link: "/teacher/dashboard",
-                icon: isPub ? CheckCircle : Clock,
-                color: isPub
-                  ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
-                  : "text-amber-400 bg-amber-500/10 border-amber-500/30",
+                id: `published-${c._id || c.id || c.slug || c.title}`,
+                title: "Course Live & Published 🎓",
+                desc: `"${c.title}" by ${teacherName} is active for students.`,
+                time: c.createdAt ? new Date(c.createdAt).toLocaleDateString() : "Published",
+                link: "/admin/dashboard?tab=courses",
+                icon: BookOpen,
+                color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
               });
+            } else if (st === "draft") {
+              notifList.push({
+                id: `draft-${c._id || c.id || c.slug || c.title}`,
+                title: "New Course in Draft 📝",
+                desc: `"${c.title}" draft was created by ${teacherName}.`,
+                time: "Draft",
+                link: "/admin/dashboard?tab=courses",
+                icon: Sparkles,
+                color: "text-purple-400 bg-purple-500/10 border-purple-500/30",
+              });
+            }
+          });
+        } else if (user.role === "teacher") {
+          const myCourses = coursesList.filter((c: any) => {
+            const tId = typeof c.teacher === "object" ? c.teacher?._id || c.teacher?.id : c.teacher;
+            const tEmail = typeof c.teacher === "object" ? c.teacher?.email : c.teacherEmail;
+            return (
+              tId === user.id ||
+              tId === (user as any)._id ||
+              (tEmail && tEmail.toLowerCase() === user.email?.toLowerCase())
+            );
+          });
+
+          myCourses.forEach((c: any) => {
+            const st = String(c.status || "pending").toLowerCase();
+            const isPub = st === "published" || st === "approved";
+            const isPend = st === "pending";
+
+            notifList.push({
+              id: `teacher-course-${c._id || c.id || c.slug || c.title}`,
+              title: isPub
+                ? "Course Live on Platform 🟢"
+                : isPend
+                  ? "Course Under Admin Review ⏳"
+                  : "Course in Draft 📝",
+              desc: isPub
+                ? `"${c.title}" is approved by Admin and published for students.`
+                : isPend
+                  ? `"${c.title}" is submitted and awaiting admin approval.`
+                  : `"${c.title}" is saved as draft.`,
+              time: isPub ? "Published" : isPend ? "Pending" : "Draft",
+              link: "/teacher/dashboard",
+              icon: isPub ? CheckCircle : Clock,
+              color: isPub
+                ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+                : "text-amber-400 bg-amber-500/10 border-amber-500/30",
             });
-          }
+          });
         }
       } catch (err) {
         console.warn("Notification fetch fallback:", err);
@@ -241,9 +331,24 @@ export const Navbar: React.FC = () => {
     };
 
     fetchNotifications();
-    const timer = setInterval(fetchNotifications, 12000);
-    return () => clearInterval(timer);
-  }, [user, pathname]);
+    const timer = setInterval(fetchNotifications, 8000);
+
+    const handleSyncEvent = () => {
+      fetchNotifications();
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("storage", handleSyncEvent);
+      window.addEventListener("educore_new_course", handleSyncEvent);
+    }
+
+    return () => {
+      clearInterval(timer);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("storage", handleSyncEvent);
+        window.removeEventListener("educore_new_course", handleSyncEvent);
+      }
+    };
+  }, [user, token, pathname]);
 
   // Automatically reset demo preview when visiting Home page so guest users get clean home screen
   useEffect(() => {
