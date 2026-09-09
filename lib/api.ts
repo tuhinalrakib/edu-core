@@ -70,7 +70,36 @@ export interface CourseType {
   learningOutcomes: string[];
   hasCertificate?: boolean;
   isEnrolled?: boolean;
+  isApproved?: boolean;
+  enrollmentStatus?: "pending" | "approved" | "rejected" | "not_enrolled";
+}
+
+export interface EnrollmentType {
+  _id: string;
+  student: UserType | any;
+  course: CourseType | any;
+  teacher: UserType | any;
+  status: "pending" | "approved" | "rejected";
+  enrolledAt: string;
+  approvedAt?: string;
+  adminNotes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotificationType {
+  _id: string;
+  recipient?: string;
+  recipientRole?: "admin" | "teacher" | "student" | "all";
+  title: string;
+  message: string;
+  type: string;
+  link?: string;
+  data?: any;
+  isRead: boolean;
+  createdAt: string;
 }
 
 // Dynamic course list placeholder
 export const MOCK_COURSES: CourseType[] = [];
+

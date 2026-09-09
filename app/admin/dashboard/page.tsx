@@ -6,6 +6,8 @@ import { useAuth } from "@/context/AuthContext";
 import { API_BASE_URL } from "@/lib/api";
 import {
   ShieldAlert,
+  ShieldCheck,
+  Loader2,
   Users,
   DollarSign,
   BookOpen,
@@ -55,8 +57,16 @@ function AdminDashboardContent() {
   const { user, updateUser, token } = useAuth();
 
   const [activeTab, setActiveTab] = useState<
-    "overview" | "teachers" | "students" | "courses" | "coupons" | "payments" | "analytics" | "profile"
+    "overview" | "enrollments" | "teachers" | "students" | "courses" | "coupons" | "payments" | "analytics" | "profile"
   >(initialTab);
+
+  // Enrollments Management State
+  const [enrollments, setEnrollments] = useState<any[]>([]);
+  const [enrollmentCounts, setEnrollmentCounts] = useState({ total: 0, pending: 0, approved: 0, rejected: 0 });
+  const [isLoadingEnrollments, setIsLoadingEnrollments] = useState(false);
+  const [enrollmentFilter, setEnrollmentFilter] = useState<"all" | "pending" | "approved" | "rejected">("pending");
+  const [enrollmentSearch, setEnrollmentSearch] = useState("");
+  const [isProcessingEnrollment, setIsProcessingEnrollment] = useState<string | null>(null);
 
   // Admin Profile Form State
   const [profileName, setProfileName] = useState(user?.name || "Super Admin");
@@ -508,6 +518,143 @@ function AdminDashboardContent() {
 
     fetchAdminCourses();
   }, [token]);
+
+  // Load Enrollments for Admin
+  const fetchEnrollments = async () => {
+    setIsLoadingEnrollments(true);
+    const activeToken = token || (typeof window !== "undefined" ? localStorage.getItem("educore_token") || localStorage.getItem("token") : null);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/admin/enrollments?status=${enrollmentFilter}&search=${encodeURIComponent(enrollmentSearch)}&t=${Date.now()}`,
+        {
+          headers: activeToken ? { Authorization: `Bearer ${activeToken}` } : {},
+          cache: "no-store",
+        }
+      );
+      const data = await res.json();
+      if (data.success) {
+        setEnrollments(data.enrollments || []);
+        if (data.counts) setEnrollmentCounts(data.counts);
+      }
+    } catch (e) {
+      console.warn("Failed to load enrollments in Admin Dashboard:", e);
+    } finally {
+      setIsLoadingEnrollments(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchEnrollments();
+  }, [token, enrollmentFilter, enrollmentSearch]);
+
+  const handleApproveEnrollment = async (enrollmentId: string, studentName: string, courseTitle: string) => {
+    Swal.fire({
+      title: "Approve Student Access?",
+      html: `<p class="text-xs text-slate-300">Grant <strong>${studentName}</strong> immediate full access to all lectures and videos in <strong>"${courseTitle}"</strong>?</p>`,
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonText: "Yes, Approve Access",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#10b981",
+      cancelButtonColor: "#334155",
+      background: "#0f172a",
+      color: "#ffffff",
+    }).then(async (res) => {
+      if (res.isConfirmed) {
+        setIsProcessingEnrollment(enrollmentId);
+        try {
+          const activeToken = token || localStorage.getItem("educore_token") || localStorage.getItem("token");
+          const apiRes = await fetch(`${API_BASE_URL}/admin/enrollments/${enrollmentId}/approve`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
+            },
+          });
+          const apiData = await apiRes.json();
+          if (apiData.success) {
+            Swal.fire({
+              icon: "success",
+              title: "Enrollment Approved! 🎉",
+              text: `${studentName} now has complete access to "${courseTitle}". Notifications have been sent.`,
+              background: "#0f172a",
+              color: "#ffffff",
+              confirmButtonColor: "#7c3aed",
+            });
+            fetchEnrollments();
+          } else {
+            throw new Error(apiData.message || "Failed to approve");
+          }
+        } catch (err: any) {
+          Swal.fire({
+            icon: "error",
+            title: "Error",
+            text: err.message || "Failed to approve enrollment.",
+            background: "#0f172a",
+            color: "#ffffff",
+          });
+        } finally {
+          setIsProcessingEnrollment(null);
+        }
+      }
+    });
+  };
+
+  const handleRejectEnrollment = async (enrollmentId: string, studentName: string, courseTitle: string) => {
+    Swal.fire({
+      title: "Deny / Cancel Enrollment?",
+      html: `<p class="text-xs text-slate-300">Deny course access for <strong>${studentName}</strong> in <strong>"${courseTitle}"</strong>? Video access will be revoked.</p>`,
+      input: "text",
+      inputPlaceholder: "Optional reason for rejection...",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, Deny Access",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#ef4444",
+      cancelButtonColor: "#334155",
+      background: "#0f172a",
+      color: "#ffffff",
+    }).then(async (res) => {
+      if (res.isConfirmed) {
+        setIsProcessingEnrollment(enrollmentId);
+        try {
+          const activeToken = token || localStorage.getItem("educore_token") || localStorage.getItem("token");
+          const apiRes = await fetch(`${API_BASE_URL}/admin/enrollments/${enrollmentId}/reject`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
+            },
+            body: JSON.stringify({ reason: res.value || "Declined by administrator" }),
+          });
+          const apiData = await apiRes.json();
+          if (apiData.success) {
+            Swal.fire({
+              icon: "info",
+              title: "Enrollment Declined ❌",
+              text: `Enrollment for ${studentName} was declined and video access cancelled.`,
+              background: "#0f172a",
+              color: "#ffffff",
+              confirmButtonColor: "#7c3aed",
+            });
+            fetchEnrollments();
+          } else {
+            throw new Error(apiData.message || "Failed to reject");
+          }
+        } catch (err: any) {
+          Swal.fire({
+            icon: "error",
+            title: "Error",
+            text: err.message || "Failed to decline enrollment.",
+            background: "#0f172a",
+            color: "#ffffff",
+          });
+        } finally {
+          setIsProcessingEnrollment(null);
+        }
+      }
+    });
+  };
 
   const isInitialLoading = isLoadingTeachers || isLoadingStudents || isLoadingCourses || isLoadingCategories;
 
@@ -1216,6 +1363,7 @@ function AdminDashboardContent() {
       <div className="flex items-center gap-2 overflow-x-auto border-b border-slate-800 pb-3 no-scrollbar">
         {[
           { id: "overview", label: "Dashboard", icon: BarChart3 },
+          { id: "enrollments", label: "Enrollment Approvals", icon: ShieldCheck },
           { id: "teachers", label: "Teacher Management", icon: UserCheck },
           { id: "students", label: "Student Management", icon: GraduationCap },
           { id: "courses", label: "Course Management", icon: BookOpen },
@@ -1238,6 +1386,11 @@ function AdminDashboardContent() {
             >
               <Icon className="w-4 h-4" />
               <span>{tab.label}</span>
+              {tab.id === "enrollments" && enrollmentCounts.pending > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] flex items-center justify-center font-black animate-pulse shadow-md shadow-amber-500/40">
+                  {enrollmentCounts.pending}
+                </span>
+              )}
               {tab.id === "courses" && pendingCoursesCount > 0 && (
                 <span className="w-5 h-5 rounded-full bg-rose-500 text-white text-[10px] flex items-center justify-center font-bold">
                   {pendingCoursesCount}
@@ -1326,6 +1479,370 @@ function AdminDashboardContent() {
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* Pending Student Enrollment Approvals Quick Widget */}
+          <div className="glass-panel p-6 rounded-3xl border border-amber-500/30 bg-gradient-to-r from-slate-950 via-amber-950/20 to-slate-950 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-amber-400" />
+                  <span>Student Enrollment Approval Requests</span>
+                  {enrollmentCounts.pending > 0 && (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
+                      {enrollmentCounts.pending} Pending Review
+                    </span>
+                  )}
+                </h2>
+                <p className="text-xs text-slate-400">Students cannot watch course videos until you approve their enrollment requests.</p>
+              </div>
+              <button
+                onClick={() => setActiveTab("enrollments")}
+                className="text-xs font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1"
+              >
+                <span>View All Requests</span>
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-950 text-slate-400 uppercase font-semibold text-[10px]">
+                  <tr>
+                    <th className="p-3">Student</th>
+                    <th className="p-3">Course</th>
+                    <th className="p-3">Instructor</th>
+                    <th className="p-3">Date</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3 text-right">Access Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {enrollments
+                    .filter((e) => e.status === "pending")
+                    .slice(0, 5)
+                    .map((en: any) => {
+                      const studentName = en.student?.name || "Student";
+                      const courseTitle = en.course?.title || "Course";
+                      const isProcessing = isProcessingEnrollment === en._id;
+                      return (
+                        <tr key={en._id} className="hover:bg-slate-900/50">
+                          <td className="p-3">
+                            <div className="flex items-center gap-2.5">
+                              <img
+                                src={en.student?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(studentName)}&background=7c3aed&color=fff`}
+                                alt={studentName}
+                                className="w-8 h-8 rounded-xl object-cover border border-slate-800"
+                              />
+                              <div>
+                                <span className="font-bold text-white block">{studentName}</span>
+                                <span className="text-[10px] text-slate-500">{en.student?.email}</span>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="p-3">
+                            <span className="font-bold text-white line-clamp-1 max-w-xs">{courseTitle}</span>
+                          </td>
+                          <td className="p-3 text-slate-400">
+                            {en.teacher?.name || en.course?.teacher?.name || "Educator"}
+                          </td>
+                          <td className="p-3 text-slate-400 text-[11px]">
+                            {en.enrolledAt ? new Date(en.enrolledAt).toLocaleDateString() : "Today"}
+                          </td>
+                          <td className="p-3">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1 w-fit">
+                              <Clock className="w-3 h-3 animate-pulse" />
+                              <span>Pending Review</span>
+                            </span>
+                          </td>
+                          <td className="p-3 text-right space-x-2">
+                            <button
+                              onClick={() => handleApproveEnrollment(en._id, studentName, courseTitle)}
+                              disabled={isProcessing}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-300 font-bold hover:bg-emerald-500/30 border border-emerald-500/30 disabled:opacity-50"
+                            >
+                              Approve Access
+                            </button>
+                            <button
+                              onClick={() => handleRejectEnrollment(en._id, studentName, courseTitle)}
+                              disabled={isProcessing}
+                              className="px-3 py-1.5 rounded-xl bg-rose-500/20 text-rose-300 font-bold hover:bg-rose-500/30 border border-rose-500/30 disabled:opacity-50"
+                            >
+                              Deny
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  {enrollments.filter((e) => e.status === "pending").length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="text-center py-6 text-slate-500">
+                        ✨ No pending enrollment requests! All student access requests are processed.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 2. ENROLLMENTS & VIDEO ACCESS APPROVAL TAB */}
+      {/* ========================================================================= */}
+      {activeTab === "enrollments" && (
+        <div className="space-y-6">
+          {/* Header & Controls */}
+          <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-slate-800 bg-gradient-to-r from-slate-900 via-purple-950/20 to-slate-900 space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Access Control & Approvals</span>
+                  </span>
+                </div>
+                <h2 className="text-2xl font-black text-white">Course Enrollment Requests & Video Access</h2>
+                <p className="text-xs text-slate-400 mt-1 max-w-2xl">
+                  Students cannot view course videos until an administrator approves their enrollment. Approve access to unlock lectures or deny to cancel enrollment.
+                </p>
+              </div>
+
+              <button
+                onClick={fetchEnrollments}
+                className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-bold text-slate-300 flex items-center gap-2 self-start md:self-auto transition-all"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingEnrollments ? "animate-spin text-purple-400" : ""}`} />
+                <span>Refresh Requests</span>
+              </button>
+            </div>
+
+            {/* Quick Stat Counter Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Enrolled</span>
+                <span className="text-2xl font-black text-white mt-1">{enrollmentCounts.total}</span>
+                <span className="text-[10px] text-slate-500 mt-1">All recorded requests</span>
+              </div>
+              <div className="p-4 rounded-2xl bg-amber-950/30 border border-amber-500/30 flex flex-col justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                  <span>Pending Review</span>
+                </span>
+                <span className="text-2xl font-black text-amber-300 mt-1">{enrollmentCounts.pending}</span>
+                <span className="text-[10px] text-amber-400/80 mt-1">Videos currently locked</span>
+              </div>
+              <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 flex flex-col justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Approved Access</span>
+                <span className="text-2xl font-black text-emerald-300 mt-1">{enrollmentCounts.approved}</span>
+                <span className="text-[10px] text-emerald-400/80 mt-1">Active video learners</span>
+              </div>
+              <div className="p-4 rounded-2xl bg-rose-950/30 border border-rose-500/30 flex flex-col justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-400">Denied / Cancelled</span>
+                <span className="text-2xl font-black text-rose-300 mt-1">{enrollmentCounts.rejected}</span>
+                <span className="text-[10px] text-rose-400/80 mt-1">Access revoked</span>
+              </div>
+            </div>
+
+            {/* Filter and Search Bar */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2 border-t border-slate-800/80">
+              {/* Filter Pills */}
+              <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto no-scrollbar">
+                {[
+                  { key: "all", label: "All Requests", count: enrollmentCounts.total },
+                  { key: "pending", label: "Pending Review", count: enrollmentCounts.pending },
+                  { key: "approved", label: "Approved", count: enrollmentCounts.approved },
+                  { key: "rejected", label: "Denied", count: enrollmentCounts.rejected },
+                ].map((f) => (
+                  <button
+                    key={f.key}
+                    onClick={() => setEnrollmentFilter(f.key as any)}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 border ${
+                      enrollmentFilter === f.key
+                        ? f.key === "pending"
+                          ? "bg-amber-500/20 text-amber-300 border-amber-500/40 shadow"
+                          : f.key === "approved"
+                          ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow"
+                          : f.key === "rejected"
+                          ? "bg-rose-500/20 text-rose-300 border-rose-500/40 shadow"
+                          : "bg-purple-900/50 text-purple-200 border-purple-500 shadow"
+                        : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    <span>{f.label}</span>
+                    <span className="px-1.5 py-0.2 rounded-md bg-slate-950/60 text-[10px]">
+                      {f.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Search Bar */}
+              <div className="relative w-full sm:w-72">
+                <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search student, email, course..."
+                  value={enrollmentSearch}
+                  onChange={(e) => setEnrollmentSearch(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Enrollments Data Table */}
+          <div className="glass-panel rounded-3xl border border-slate-800 overflow-hidden">
+            {isLoadingEnrollments ? (
+              <div className="py-16 text-center">
+                <EduCoreLoader message="Loading enrollment approval requests..." />
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950 text-slate-400 uppercase font-semibold text-[10px]">
+                    <tr>
+                      <th className="p-4">Student</th>
+                      <th className="p-4">Requested Course</th>
+                      <th className="p-4">Course Instructor</th>
+                      <th className="p-4">Enrollment Date</th>
+                      <th className="p-4">Access Status</th>
+                      <th className="p-4 text-right">Admin Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/80">
+                    {enrollments.map((en: any) => {
+                      const studentName = en.student?.name || "Student";
+                      const courseTitle = en.course?.title || "Course";
+                      const teacherName = en.teacher?.name || en.course?.teacher?.name || "Educator";
+                      const isProcessing = isProcessingEnrollment === en._id;
+
+                      return (
+                        <tr key={en._id} className="hover:bg-slate-900/40 transition-colors">
+                          <td className="p-4">
+                            <div className="flex items-center gap-3">
+                              <img
+                                src={en.student?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(studentName)}&background=7c3aed&color=fff`}
+                                alt={studentName}
+                                className="w-9 h-9 rounded-xl object-cover border border-slate-800"
+                              />
+                              <div>
+                                <span className="font-bold text-white block text-sm">{studentName}</span>
+                                <span className="text-xs text-slate-400">{en.student?.email}</span>
+                                {en.student?.phone && (
+                                  <span className="text-[10px] text-slate-500 block">{en.student.phone}</span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="p-4">
+                            <div className="flex items-center gap-3 max-w-sm">
+                              {en.course?.thumbnail && (
+                                <img
+                                  src={en.course.thumbnail}
+                                  alt={courseTitle}
+                                  className="w-12 h-8 rounded-lg object-cover border border-slate-800 shrink-0"
+                                />
+                              )}
+                              <div className="min-w-0">
+                                <span className="font-bold text-white line-clamp-1 block">{courseTitle}</span>
+                                <span className="text-[10px] text-purple-400 font-semibold">{en.course?.category || "Course"}</span>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="p-4 text-slate-300">
+                            <span className="font-medium text-slate-200">{teacherName}</span>
+                            {en.teacher?.email && (
+                              <span className="text-[10px] text-slate-500 block">{en.teacher.email}</span>
+                            )}
+                          </td>
+
+                          <td className="p-4 text-slate-400">
+                            <span className="text-xs text-white font-medium block">
+                              {en.enrolledAt ? new Date(en.enrolledAt).toLocaleDateString() : "Today"}
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              {en.enrolledAt ? new Date(en.enrolledAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+                            </span>
+                          </td>
+
+                          <td className="p-4">
+                            {en.status === "approved" ? (
+                              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 w-fit">
+                                <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>Approved (Active)</span>
+                              </span>
+                            ) : en.status === "rejected" ? (
+                              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1.5 w-fit">
+                                <XCircle className="w-3.5 h-3.5 text-rose-400" />
+                                <span>Denied / Cancelled</span>
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1.5 w-fit shadow-sm">
+                                <Clock className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                                <span>Awaiting Approval</span>
+                              </span>
+                            )}
+                            {en.adminNotes && (
+                              <span className="text-[10px] text-slate-400 block mt-1 italic">Note: {en.adminNotes}</span>
+                            )}
+                          </td>
+
+                          <td className="p-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              {en.status !== "approved" && (
+                                <button
+                                  onClick={() => handleApproveEnrollment(en._id, studentName, courseTitle)}
+                                  disabled={isProcessing}
+                                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                                  title="Approve student access"
+                                >
+                                  {isProcessing ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <CheckCircle className="w-3.5 h-3.5" />
+                                  )}
+                                  <span>Approve Access</span>
+                                </button>
+                              )}
+
+                              {en.status !== "rejected" && (
+                                <button
+                                  onClick={() => handleRejectEnrollment(en._id, studentName, courseTitle)}
+                                  disabled={isProcessing}
+                                  className="px-3.5 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white font-bold text-xs border border-rose-500/30 transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                                  title="Deny / Cancel student enrollment"
+                                >
+                                  {isProcessing ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <XCircle className="w-3.5 h-3.5" />
+                                  )}
+                                  <span>{en.status === "approved" ? "Revoke Access" : "Deny"}</span>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    {enrollments.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="text-center py-12 text-slate-500 space-y-2">
+                          <ShieldCheck className="w-10 h-10 text-slate-600 mx-auto opacity-40" />
+                          <p className="text-sm font-medium text-slate-400">No enrollment records found for current filter.</p>
+                          <p className="text-xs text-slate-600">When students enroll in courses, their requests will appear here for admin review.</p>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}

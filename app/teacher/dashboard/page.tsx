@@ -12,6 +12,7 @@ import {
   FileText,
   TrendingUp,
   Clock,
+  ShieldCheck,
   Award,
   Edit,
   Trash2,
@@ -52,8 +53,15 @@ import Swal from "sweetalert2";
 export default function TeacherDashboard() {
   const { user, token, updateUser } = useAuth();
   const [activeTab, setActiveTab] = useState<
-    "overview" | "courses" | "liveClasses" | "assignments" | "quizzes" | "profile"
+    "overview" | "courses" | "students" | "liveClasses" | "assignments" | "quizzes" | "profile"
   >("overview");
+
+  // Enrolled Students state
+  const [enrolledStudents, setEnrolledStudents] = useState<any[]>([]);
+  const [enrolledCounts, setEnrolledCounts] = useState({ total: 0, pending: 0, approved: 0, rejected: 0 });
+  const [isLoadingEnrolled, setIsLoadingEnrolled] = useState(false);
+  const [studentSearch, setStudentSearch] = useState("");
+  const [studentFilter, setStudentFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
 
 
   // Teacher Profile State
@@ -758,8 +766,32 @@ export default function TeacherDashboard() {
   ).length;
 
   const gradedSubmissionsCount = submissions.filter(
-    (s) => s.status === "Graded" || String(s.status).toLowerCase() === "graded"
+    (s) => s.status === "Graded" || String(s.status).toLowerCase().includes("graded")
   ).length;
+
+  // Load Enrolled Students for Teacher
+  const fetchTeacherEnrollments = async () => {
+    setIsLoadingEnrolled(true);
+    const activeToken = token || (typeof window !== "undefined" ? localStorage.getItem("educore_token") || localStorage.getItem("token") : null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/teacher/enrollments?t=${Date.now()}`, {
+        headers: activeToken ? { Authorization: `Bearer ${activeToken}` } : {},
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEnrolledStudents(data.enrollments || []);
+        if (data.counts) setEnrolledCounts(data.counts);
+      }
+    } catch (e) {
+      console.warn("Failed to load teacher enrollments:", e);
+    } finally {
+      setIsLoadingEnrolled(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTeacherEnrollments();
+  }, [token]);
 
   const gradedSubmissionsWithMarks = submissions.filter((s) => s.marks !== null && s.marks !== undefined);
   const averageGrade =
@@ -832,6 +864,12 @@ export default function TeacherDashboard() {
         {[
           { id: "overview", label: "Dashboard Analytics", icon: TrendingUp },
           { id: "courses", label: isLoadingCourses ? "Course Management (Loading...)" : `Course Management (${courses.length})`, icon: BookOpen },
+          {
+            id: "students",
+            label: `Enrolled Students (${enrolledCounts.total})`,
+            icon: Users,
+            badge: enrolledCounts.pending,
+          },
           {
             id: "liveClasses",
             label: `Live Classes (${liveClasses.length})`,
@@ -1000,6 +1038,222 @@ export default function TeacherDashboard() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* TAB: ENROLLED STUDENTS & APPROVAL STATUS */}
+      {activeTab === "students" && (
+        <div className="space-y-6">
+          <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-slate-800 bg-gradient-to-r from-slate-900 via-blue-950/20 to-slate-900 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-500/30 flex items-center gap-1">
+                    <Users className="w-3.5 h-3.5" />
+                    <span>Student Access Oversight</span>
+                  </span>
+                </div>
+                <h2 className="text-2xl font-black text-white">Enrolled Students & Course Access</h2>
+                <p className="text-xs text-slate-400 mt-1 max-w-xl">
+                  View students who have enrolled in your courses. Student video access is approved and controlled securely by platform administrators.
+                </p>
+              </div>
+
+              <button
+                onClick={fetchTeacherEnrollments}
+                className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-bold text-slate-300 flex items-center gap-2 self-start sm:self-auto transition-all"
+              >
+                <span>Refresh Students</span>
+              </button>
+            </div>
+
+            {/* Quick Stat Counter Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Enrollments</span>
+                <span className="text-2xl font-black text-white mt-1">{enrolledCounts.total}</span>
+              </div>
+              <div className="p-4 rounded-2xl bg-amber-950/30 border border-amber-500/30 flex flex-col justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                  <span>Pending Admin Review</span>
+                </span>
+                <span className="text-2xl font-black text-amber-300 mt-1">{enrolledCounts.pending}</span>
+                <span className="text-[10px] text-amber-400/80 mt-1">Videos locked</span>
+              </div>
+              <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 flex flex-col justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Approved Learners</span>
+                <span className="text-2xl font-black text-emerald-300 mt-1">{enrolledCounts.approved}</span>
+                <span className="text-[10px] text-emerald-400/80 mt-1">Full video access</span>
+              </div>
+              <div className="p-4 rounded-2xl bg-rose-950/30 border border-rose-500/30 flex flex-col justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-400">Declined / Revoked</span>
+                <span className="text-2xl font-black text-rose-300 mt-1">{enrolledCounts.rejected}</span>
+              </div>
+            </div>
+
+            {/* Filter and Search Bar */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2 border-t border-slate-800/80">
+              {/* Filter Pills */}
+              <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto no-scrollbar">
+                {[
+                  { key: "all", label: "All Students", count: enrolledCounts.total },
+                  { key: "pending", label: "Pending Admin Approval", count: enrolledCounts.pending },
+                  { key: "approved", label: "Approved Learners", count: enrolledCounts.approved },
+                  { key: "rejected", label: "Declined", count: enrolledCounts.rejected },
+                ].map((f) => (
+                  <button
+                    key={f.key}
+                    onClick={() => setStudentFilter(f.key as any)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 border ${
+                      studentFilter === f.key
+                        ? f.key === "pending"
+                          ? "bg-amber-500/20 text-amber-300 border-amber-500/40 shadow"
+                          : f.key === "approved"
+                          ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow"
+                          : f.key === "rejected"
+                          ? "bg-rose-500/20 text-rose-300 border-rose-500/40 shadow"
+                          : "bg-purple-900/50 text-purple-200 border-purple-500 shadow"
+                        : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    <span>{f.label}</span>
+                    <span className="px-1.5 py-0.2 rounded-md bg-slate-950/60 text-[10px]">
+                      {f.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Search Bar */}
+              <div className="relative w-full sm:w-72">
+                <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search student or course..."
+                  value={studentSearch}
+                  onChange={(e) => setStudentSearch(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Enrolled Students Table */}
+          <div className="glass-panel rounded-3xl border border-slate-800 overflow-hidden">
+            {isLoadingEnrolled ? (
+              <div className="py-16 text-center">
+                <EduCoreLoader message="Loading enrolled students list..." />
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950 text-slate-400 uppercase font-semibold text-[10px]">
+                    <tr>
+                      <th className="p-4">Student</th>
+                      <th className="p-4">Enrolled Course</th>
+                      <th className="p-4">Enrolled Date</th>
+                      <th className="p-4">Video Access Status</th>
+                      <th className="p-4 text-right">Admin Approval</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/80">
+                    {enrolledStudents
+                      .filter((en) => {
+                        if (studentFilter !== "all" && en.status !== studentFilter) return false;
+                        if (studentSearch) {
+                          const sLower = studentSearch.toLowerCase();
+                          const sName = en.student?.name?.toLowerCase() || "";
+                          const sEmail = en.student?.email?.toLowerCase() || "";
+                          const cTitle = en.course?.title?.toLowerCase() || "";
+                          return sName.includes(sLower) || sEmail.includes(sLower) || cTitle.includes(sLower);
+                        }
+                        return true;
+                      })
+                      .map((en: any) => {
+                        const studentName = en.student?.name || "Student";
+                        const courseTitle = en.course?.title || "Course";
+
+                        return (
+                          <tr key={en._id} className="hover:bg-slate-900/40 transition-colors">
+                            <td className="p-4">
+                              <div className="flex items-center gap-3">
+                                <img
+                                  src={en.student?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(studentName)}&background=7c3aed&color=fff`}
+                                  alt={studentName}
+                                  className="w-9 h-9 rounded-xl object-cover border border-slate-800"
+                                />
+                                <div>
+                                  <span className="font-bold text-white block text-sm">{studentName}</span>
+                                  <span className="text-xs text-slate-400">{en.student?.email}</span>
+                                </div>
+                              </div>
+                            </td>
+
+                            <td className="p-4">
+                              <div className="flex items-center gap-3 max-w-sm">
+                                {en.course?.thumbnail && (
+                                  <img
+                                    src={en.course.thumbnail}
+                                    alt={courseTitle}
+                                    className="w-12 h-8 rounded-lg object-cover border border-slate-800 shrink-0"
+                                  />
+                                )}
+                                <span className="font-bold text-white line-clamp-1 block">{courseTitle}</span>
+                              </div>
+                            </td>
+
+                            <td className="p-4 text-slate-400">
+                              <span className="text-xs text-white font-medium block">
+                                {en.enrolledAt ? new Date(en.enrolledAt).toLocaleDateString() : "Today"}
+                              </span>
+                            </td>
+
+                            <td className="p-4">
+                              {en.status === "approved" ? (
+                                <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 w-fit">
+                                  <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                                  <span>Approved & Active (Videos Unlocked)</span>
+                                </span>
+                              ) : en.status === "rejected" ? (
+                                <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1.5 w-fit">
+                                  <span>Declined by Admin (Access Denied)</span>
+                                </span>
+                              ) : (
+                                <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1.5 w-fit">
+                                  <Clock className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                                  <span>Pending Admin Review (Videos Locked)</span>
+                                </span>
+                              )}
+                            </td>
+
+                            <td className="p-4 text-right">
+                              <span className="text-[11px] text-slate-400 font-medium">
+                                {en.status === "approved"
+                                  ? "Approved ✓"
+                                  : en.status === "rejected"
+                                  ? "Declined ✗"
+                                  : "Awaiting Admin Action"}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                    {enrolledStudents.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="text-center py-12 text-slate-500 space-y-2">
+                          <Users className="w-10 h-10 text-slate-600 mx-auto opacity-40" />
+                          <p className="text-sm font-medium text-slate-400">No students have enrolled in your courses yet.</p>
+                          <p className="text-xs text-slate-600">When students enroll, their enrollment requests and approval status will appear here.</p>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

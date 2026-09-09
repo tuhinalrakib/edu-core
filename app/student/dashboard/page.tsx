@@ -29,6 +29,8 @@ import {
   Zap,
   Radio,
   Video,
+  Lock,
+  AlertCircle,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { API_BASE_URL, CourseType } from "@/lib/api";
@@ -60,6 +62,7 @@ function StudentDashboardContent() {
   const [assignmentSubmissions, setAssignmentSubmissions] = useState<any[]>([]);
   const [liveClasses, setLiveClasses] = useState<any[]>([]);
   const [userProgressMap, setUserProgressMap] = useState<Record<string, string[]>>({});
+  const [enrollmentMap, setEnrollmentMap] = useState<Record<string, { status: string; isApproved: boolean }>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"courses" | "liveClasses" | "grades" | "quizzes" | "assignments" | "certificates">(
     tabParam && ["courses", "liveClasses", "grades", "quizzes", "assignments", "certificates"].includes(tabParam)
@@ -108,6 +111,17 @@ function StudentDashboardContent() {
           : [];
         setCourses(loadedCourses);
 
+        // Pre-fill enrollment map from courses metadata
+        const initialMap: Record<string, { status: string; isApproved: boolean }> = {};
+        loadedCourses.forEach((c) => {
+          if (c.enrollmentStatus && c.enrollmentStatus !== "not_enrolled") {
+            const info = { status: c.enrollmentStatus, isApproved: Boolean(c.isApproved) };
+            if (c._id) initialMap[String(c._id)] = info;
+            if (c.slug) initialMap[String(c.slug)] = info;
+          }
+        });
+        setEnrollmentMap(initialMap);
+
         // 2. Fetch Completed Lessons Progress Map
         const progressMap: Record<string, string[]> = {};
         loadedCourses.forEach((c) => {
@@ -135,6 +149,19 @@ function StudentDashboardContent() {
                   );
                 }
               });
+            }
+
+            if (pData.success && Array.isArray(pData.enrollments)) {
+              const updatedMap: Record<string, { status: string; isApproved: boolean }> = { ...initialMap };
+              pData.enrollments.forEach((item: any) => {
+                const c = item.course;
+                const cId = c?._id || c?.id || (typeof c === "string" ? c : null);
+                const cSlug = c?.slug;
+                const info = { status: item.status, isApproved: item.status === "approved" };
+                if (cId) updatedMap[String(cId)] = info;
+                if (cSlug) updatedMap[String(cSlug)] = info;
+              });
+              setEnrollmentMap(updatedMap);
             }
           } catch (e) {}
         }
@@ -207,8 +234,34 @@ function StudentDashboardContent() {
     fetchDashboardData();
   }, []);
 
+  // Filter only courses that this student has actually enrolled in (pending, approved, or rejected)
+  const userEnrolledCourses = courses.filter((course) => {
+    const cId = course._id ? String(course._id) : "";
+    const cSlug = course.slug ? String(course.slug) : "";
+    const hasEnrollment = Boolean(
+      (cId && enrollmentMap[cId]) ||
+      (cSlug && enrollmentMap[cSlug]) ||
+      course.isEnrolled ||
+      (course.enrollmentStatus && course.enrollmentStatus !== "not_enrolled")
+    );
+    return hasEnrollment;
+  });
+
   // Compute Enrolled courses data with 100% REAL dynamic metrics
-  const enrolledCoursesData = courses.map((course) => {
+  const enrolledCoursesData = userEnrolledCourses.map((course) => {
+    const cId = course._id ? String(course._id) : "";
+    const cSlug = course.slug ? String(course.slug) : "";
+    const enrollInfo = (cId ? enrollmentMap[cId] : undefined) || (cSlug ? enrollmentMap[cSlug] : undefined);
+
+    const enrollmentStatus: "pending" | "approved" | "rejected" =
+      (enrollInfo?.status as any) ||
+      (course.enrollmentStatus as any) ||
+      (course.isApproved ? "approved" : course.isEnrolled ? "approved" : "pending");
+
+    const isApproved = enrollInfo ? enrollInfo.isApproved : Boolean(course.isApproved ?? (enrollmentStatus === "approved"));
+    const isPendingApproval = enrollmentStatus === "pending";
+    const isRejected = enrollmentStatus === "rejected";
+
     const sections = Array.isArray(course.sections) ? course.sections : [];
     const allLessons: any[] = [];
     sections.forEach((sec) => {
@@ -312,15 +365,21 @@ function StudentDashboardContent() {
       gradeColor,
       courseQuizzes,
       courseAssignments,
+      isApproved,
+      enrollmentStatus,
+      isPendingApproval,
+      isRejected,
     };
   });
 
   // Global Academic Summary Statistics
   const totalEnrolled = enrolledCoursesData.length;
-  const completedCoursesCount = enrolledCoursesData.filter((c) => c.isCompleted).length;
-  const certificateEligibleCourses = enrolledCoursesData.filter((c) => c.isCompleted && c.hasCertificate);
+  const approvedCourses = enrolledCoursesData.filter((c) => c.isApproved);
+  const pendingCourses = enrolledCoursesData.filter((c) => c.isPendingApproval);
+  const completedCoursesCount = approvedCourses.filter((c) => c.isCompleted).length;
+  const certificateEligibleCourses = approvedCourses.filter((c) => c.isCompleted && c.hasCertificate);
   const certificatesCount = certificateEligibleCourses.length;
-  const inProgressCoursesCount = totalEnrolled - completedCoursesCount;
+  const inProgressCoursesCount = approvedCourses.filter((c) => !c.isCompleted).length;
   const totalCompletedLessons = Object.values(userProgressMap).reduce((acc, curr) => acc + curr.length, 0);
 
   // Real Quiz statistics
@@ -338,7 +397,7 @@ function StudentDashboardContent() {
     : 0;
 
   // Overall CGPA
-  const gradedCourses = enrolledCoursesData.filter((c) => c.isGraded);
+  const gradedCourses = approvedCourses.filter((c) => c.isGraded);
   const overallCGPA = gradedCourses.length > 0
     ? (gradedCourses.reduce((acc, c) => acc + c.courseGPA, 0) / gradedCourses.length).toFixed(2)
     : "0.00";
@@ -353,7 +412,7 @@ function StudentDashboardContent() {
   const activeLiveSession = liveClasses.find((l) => l.status === "live");
 
   // Resume First In-Progress Course
-  const activeCourse = enrolledCoursesData.find((c) => !c.isCompleted) || enrolledCoursesData[0];
+  const activeCourse = approvedCourses.find((c) => !c.isCompleted) || approvedCourses[0] || enrolledCoursesData[0];
 
   return (
     <div className="min-h-screen bg-[#070a12] text-slate-100">
@@ -416,16 +475,41 @@ function StudentDashboardContent() {
 
           {activeCourse ? (
             <div className="shrink-0 w-full md:w-auto">
-              <Link
-                href={activeCourse.resumeUrl || `/student/learn/${activeCourse.slug || activeCourse._id}`}
-                className="w-full sm:w-auto px-6 py-3.5 rounded-2xl text-xs font-bold text-white gradient-button flex items-center justify-center gap-2.5 shadow-xl shadow-purple-600/30 hover:scale-105 transition-all"
-              >
-                <Play className="w-4 h-4 fill-white" />
-                <span>{activeCourse.completedLessonsCount > 0 ? "Resume Current Lecture" : "Start Learning Now"}</span>
-              </Link>
-              <p className="text-[10px] text-slate-400 text-center md:text-right mt-1.5 line-clamp-1 max-w-xs">
-                📍 {activeCourse.currentActiveLesson?.title}
-              </p>
+              {activeCourse.isPendingApproval ? (
+                <div>
+                  <Link
+                    href={`/student/learn/${activeCourse.slug || activeCourse._id}`}
+                    className="w-full sm:w-auto px-6 py-3.5 rounded-2xl text-xs font-bold text-amber-200 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 flex items-center justify-center gap-2.5 shadow-xl hover:scale-105 transition-all cursor-pointer"
+                  >
+                    <Clock className="w-4 h-4 text-amber-400 animate-spin" />
+                    <span>Awaiting Admin Approval</span>
+                  </Link>
+                  <p className="text-[10px] text-amber-300/80 text-center md:text-right mt-1.5 line-clamp-1 max-w-xs">
+                    ⏳ Approval pending for {activeCourse.title}
+                  </p>
+                </div>
+              ) : activeCourse.isRejected ? (
+                <Link
+                  href="/courses"
+                  className="px-6 py-3.5 rounded-2xl text-xs font-bold text-white gradient-button flex items-center gap-2"
+                >
+                  <BookOpen className="w-4 h-4" />
+                  <span>Explore Courses</span>
+                </Link>
+              ) : (
+                <>
+                  <Link
+                    href={activeCourse.resumeUrl || `/student/learn/${activeCourse.slug || activeCourse._id}`}
+                    className="w-full sm:w-auto px-6 py-3.5 rounded-2xl text-xs font-bold text-white gradient-button flex items-center justify-center gap-2.5 shadow-xl shadow-purple-600/30 hover:scale-105 transition-all"
+                  >
+                    <Play className="w-4 h-4 fill-white" />
+                    <span>{activeCourse.completedLessonsCount > 0 ? "Resume Current Lecture" : "Start Learning Now"}</span>
+                  </Link>
+                  <p className="text-[10px] text-slate-400 text-center md:text-right mt-1.5 line-clamp-1 max-w-xs">
+                    📍 {activeCourse.currentActiveLesson?.title}
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             <Link
@@ -678,63 +762,120 @@ function StudentDashboardContent() {
                           </div>
 
                           <div className="flex items-center gap-2 self-start sm:self-center">
-                            <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
-                              course.isGraded
-                                ? course.gradeColor
-                                : "text-slate-400 bg-slate-900 border-slate-800"
-                            }`}>
-                              {course.isGraded
-                                ? `Grade ${course.courseGrade} (${course.courseGPA.toFixed(2)} GPA • ${course.totalAverageMarks}%)`
-                                : course.isCompleted
-                                ? "Completed (Pending Grading)"
-                                : "In Progress"}
-                            </span>
+                            {course.isPendingApproval ? (
+                              <span className="text-xs font-bold px-3 py-1 rounded-full border text-amber-300 bg-amber-500/10 border-amber-500/30 flex items-center gap-1.5">
+                                <Clock className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                                <span>Pending Admin Approval</span>
+                              </span>
+                            ) : course.isRejected ? (
+                              <span className="text-xs font-bold px-3 py-1 rounded-full border text-rose-300 bg-rose-500/10 border-rose-500/30 flex items-center gap-1.5">
+                                <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+                                <span>Enrollment Declined</span>
+                              </span>
+                            ) : (
+                              <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
+                                course.isGraded
+                                  ? course.gradeColor
+                                  : "text-emerald-300 bg-emerald-500/10 border-emerald-500/30"
+                              }`}>
+                                {course.isGraded
+                                  ? `Grade ${course.courseGrade} (${course.courseGPA.toFixed(2)} GPA • ${course.totalAverageMarks}%)`
+                                  : course.isCompleted
+                                  ? "Completed"
+                                  : "Active & Approved"}
+                              </span>
+                            )}
                           </div>
                         </div>
 
-                        {/* Progress Bar */}
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="text-slate-400 font-medium">
-                              Lessons: <strong className="text-white">{course.completedLessonsCount} of {course.totalLessons} Completed</strong>
-                            </span>
-                            <span className="text-purple-400 font-bold">{course.progressPercentage}%</span>
-                          </div>
-                          <div className="w-full h-2 rounded-full bg-slate-900 overflow-hidden border border-slate-800">
-                            <div
-                              className="h-full bg-gradient-to-r from-purple-500 to-emerald-400 transition-all duration-500"
-                              style={{ width: `${course.progressPercentage}%` }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Current Lecture Position & Marks */}
-                        <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                          <div>
-                            <span className="text-slate-400 block text-[11px]">Currently On Lecture:</span>
-                            <span className="text-purple-300 font-bold line-clamp-1">
-                              📍 {course.currentActiveLesson?.title}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-3 shrink-0">
-                            {course.isGraded && (
-                              <div className="text-right">
-                                <span className="text-[11px] text-slate-400 block">Course Marks:</span>
-                                <span className="font-mono font-bold text-emerald-400">
-                                  {course.totalAverageMarks}/100 ({course.courseGrade})
+                        {course.isPendingApproval ? (
+                          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                            <div className="flex items-start sm:items-center gap-3 text-amber-200">
+                              <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                                <Lock className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <span className="font-bold block text-white">Course Video Access Locked 🔒</span>
+                                <span className="text-[11px] text-amber-300/80">
+                                  Your enrollment is awaiting Administrator approval. Non-preview lectures and evaluations will unlock once approved.
                                 </span>
                               </div>
-                            )}
-
+                            </div>
                             <Link
-                              href={course.resumeUrl || `/student/learn/${course.slug || course._id}`}
-                              className="px-4 py-2 rounded-xl text-xs font-bold text-white gradient-button flex items-center gap-1.5 shadow-md shadow-purple-600/20 hover:scale-105 transition-all cursor-pointer"
+                              href={`/student/learn/${course.slug || course._id}`}
+                              className="px-4 py-2 rounded-xl text-xs font-bold text-amber-200 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 flex items-center justify-center gap-1.5 shadow-md transition-all shrink-0 cursor-pointer"
                             >
-                              <Play className="w-3.5 h-3.5 fill-white" />
-                              <span>Resume</span>
+                              <Lock className="w-3.5 h-3.5" />
+                              <span>View Locked Player</span>
                             </Link>
                           </div>
-                        </div>
+                        ) : course.isRejected ? (
+                          <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                            <div className="flex items-start sm:items-center gap-3 text-rose-200">
+                              <div className="w-8 h-8 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                                <AlertCircle className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <span className="font-bold block text-white">Enrollment Request Declined</span>
+                                <span className="text-[11px] text-rose-300/80">
+                                  The administrator declined this enrollment request. Please contact support or select another course.
+                                </span>
+                              </div>
+                            </div>
+                            <Link
+                              href="/courses"
+                              className="px-4 py-2 rounded-xl text-xs font-bold text-rose-200 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 flex items-center justify-center gap-1.5 shadow-md transition-all shrink-0 cursor-pointer"
+                            >
+                              <span>Browse Catalog</span>
+                            </Link>
+                          </div>
+                        ) : (
+                          <>
+                            {/* Progress Bar */}
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-slate-400 font-medium">
+                                  Lessons: <strong className="text-white">{course.completedLessonsCount} of {course.totalLessons} Completed</strong>
+                                </span>
+                                <span className="text-purple-400 font-bold">{course.progressPercentage}%</span>
+                              </div>
+                              <div className="w-full h-2 rounded-full bg-slate-900 overflow-hidden border border-slate-800">
+                                <div
+                                  className="h-full bg-gradient-to-r from-purple-500 to-emerald-400 transition-all duration-500"
+                                  style={{ width: `${course.progressPercentage}%` }}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Current Lecture Position & Marks */}
+                            <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                              <div>
+                                <span className="text-slate-400 block text-[11px]">Currently On Lecture:</span>
+                                <span className="text-purple-300 font-bold line-clamp-1">
+                                  📍 {course.currentActiveLesson?.title}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-3 shrink-0">
+                                {course.isGraded && (
+                                  <div className="text-right">
+                                    <span className="text-[11px] text-slate-400 block">Course Marks:</span>
+                                    <span className="font-mono font-bold text-emerald-400">
+                                      {course.totalAverageMarks}/100 ({course.courseGrade})
+                                    </span>
+                                  </div>
+                                )}
+
+                                <Link
+                                  href={course.resumeUrl || `/student/learn/${course.slug || course._id}`}
+                                  className="px-4 py-2 rounded-xl text-xs font-bold text-white gradient-button flex items-center gap-1.5 shadow-md shadow-purple-600/20 hover:scale-105 transition-all cursor-pointer"
+                                >
+                                  <Play className="w-3.5 h-3.5 fill-white" />
+                                  <span>Resume</span>
+                                </Link>
+                              </div>
+                            </div>
+                          </>
+                        )}
                       </div>
                     );
                   })

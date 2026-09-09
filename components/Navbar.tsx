@@ -23,6 +23,10 @@ import {
   Flame,
   Radio,
   Calendar,
+  XCircle,
+  Users,
+  CheckCheck,
+  Trash2,
 } from "lucide-react";
 
 
@@ -35,10 +39,12 @@ export const Navbar: React.FC = () => {
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
-  const [readIds, setReadIds] = useState<string[]>(() => {
+  const [deletedIds, setDeletedIds] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
       try {
-        return JSON.parse(localStorage.getItem("educore_read_notifs") || "[]");
+        const d = JSON.parse(localStorage.getItem("educore_deleted_notifs") || "[]");
+        const r = JSON.parse(localStorage.getItem("educore_read_notifs") || "[]");
+        return Array.from(new Set([...d, ...r]));
       } catch (e) {
         return [];
       }
@@ -47,24 +53,56 @@ export const Navbar: React.FC = () => {
   });
   const notifRef = useRef<HTMLDivElement>(null);
 
-  const markAsRead = (id: string) => {
-
-    setReadIds((prev) => {
-      if (prev.includes(id)) return prev;
-      const updated = [...prev, id];
+  const dismissNotification = (id: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    setDeletedIds((prev) => {
+      const updated = Array.from(new Set([...prev, id]));
       try {
+        localStorage.setItem("educore_deleted_notifs", JSON.stringify(updated));
         localStorage.setItem("educore_read_notifs", JSON.stringify(updated));
-      } catch (e) {}
+      } catch (err) {}
       return updated;
     });
+
+    const activeToken =
+      token ||
+      (typeof window !== "undefined"
+        ? localStorage.getItem("educore_token") || localStorage.getItem("token")
+        : null);
+
+    if (activeToken && /^[0-9a-fA-F]{24}$/.test(id)) {
+      fetch(`${API_BASE_URL}/notifications/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${activeToken}` },
+      }).catch(() => {});
+    }
   };
 
   const markAllAsRead = () => {
-    const allIds = Array.from(new Set([...readIds, ...notifications.map((n) => n.id)]));
-    setReadIds(allIds);
+    const allIds = Array.from(new Set([...deletedIds, ...notifications.map((n) => n.id)]));
+    setDeletedIds(allIds);
+    setNotifications([]);
     try {
+      localStorage.setItem("educore_deleted_notifs", JSON.stringify(allIds));
       localStorage.setItem("educore_read_notifs", JSON.stringify(allIds));
     } catch (e) {}
+
+    const activeToken =
+      token ||
+      (typeof window !== "undefined"
+        ? localStorage.getItem("educore_token") || localStorage.getItem("token")
+        : null);
+
+    if (activeToken) {
+      fetch(`${API_BASE_URL}/notifications/clear-all`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${activeToken}` },
+      }).catch(() => {});
+    }
   };
 
 
@@ -99,232 +137,126 @@ export const Navbar: React.FC = () => {
         const headers: any = {};
         if (activeToken) headers.Authorization = `Bearer ${activeToken}`;
 
-        const res = await fetch(`${API_BASE_URL}/courses?status=all&t=${Date.now()}`, {
-          cache: "no-store",
-          headers,
-        });
-        const data = await res.json();
-        let coursesList: any[] = [];
-        if (data.success && Array.isArray(data.courses)) {
-          coursesList = [...data.courses];
-        }
-
-        // Also try fetching /api/admin/courses if user is admin
-        if (user.role === "admin" && activeToken) {
+        // 1. Fetch Real Database Notifications First
+        if (activeToken) {
           try {
-            const adminRes = await fetch(`${API_BASE_URL}/admin/courses?t=${Date.now()}`, {
-              headers: { Authorization: `Bearer ${activeToken}` },
+            const dbNotifRes = await fetch(`${API_BASE_URL}/notifications?t=${Date.now()}`, {
+              headers,
               cache: "no-store",
             });
-            const adminData = await adminRes.json();
-            if (adminData.success && Array.isArray(adminData.courses)) {
-              adminData.courses.forEach((ac: any) => {
-                if (!coursesList.some((c) => String(c._id || c.id) === String(ac._id || ac.id))) {
-                  coursesList.unshift(ac);
+            const dbNotifData = await dbNotifRes.json();
+            if (dbNotifData.success && Array.isArray(dbNotifData.notifications)) {
+              dbNotifData.notifications.forEach((dn: any) => {
+                // If notification was marked read, seen, or deleted, do NOT display it
+                if (dn.isRead || deletedIds.includes(dn._id)) return;
+
+                let notifIcon = Bell;
+                let notifColor = "text-purple-400 bg-purple-500/10 border-purple-500/30";
+                let notifLink = dn.link || "#";
+
+                if (dn.type === "enrollment_pending") {
+                  notifIcon = Clock;
+                  notifColor = "text-amber-400 bg-amber-500/10 border-amber-500/30";
+                  if (user.role === "admin") notifLink = "/admin/dashboard?tab=enrollments";
+                  if (user.role === "teacher") notifLink = "/teacher/dashboard?tab=students";
+                } else if (dn.type === "enrollment_approved") {
+                  notifIcon = CheckCircle;
+                  notifColor = "text-emerald-400 bg-emerald-500/10 border-emerald-500/30";
+                  if (user.role === "teacher") notifLink = "/teacher/dashboard?tab=students";
+                  if (user.role === "student" && !dn.link) notifLink = "/student/dashboard";
+                } else if (dn.type === "enrollment_rejected") {
+                  notifIcon = XCircle;
+                  notifColor = "text-rose-400 bg-rose-500/10 border-rose-500/30";
+                  if (user.role === "teacher") notifLink = "/teacher/dashboard?tab=students";
+                  if (user.role === "student" && !dn.link) notifLink = "/student/dashboard";
+                } else if (dn.type === "course_published") {
+                  notifIcon = CheckCircle;
+                  notifColor = "text-emerald-400 bg-emerald-500/10 border-emerald-500/30";
+                  notifLink = "/teacher/dashboard";
+                }
+
+                notifList.push({
+                  id: dn._id,
+                  title: dn.title,
+                  desc: dn.message,
+                  time: dn.createdAt ? new Date(dn.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "Just now",
+                  link: notifLink,
+                  icon: notifIcon,
+                  color: notifColor,
+                  isRead: false,
+                });
+              });
+            }
+          } catch (dbNotifErr) {
+            console.warn("DB notifications fetch fallback:", dbNotifErr);
+          }
+        }
+
+        // 2. For Admin ONLY: Check if any course is currently awaiting review
+        if (user.role === "admin") {
+          try {
+            const courseRes = await fetch(`${API_BASE_URL}/courses?status=pending&t=${Date.now()}`, {
+              cache: "no-store",
+              headers,
+            });
+            const courseData = await courseRes.json();
+            if (courseData.success && Array.isArray(courseData.courses)) {
+              courseData.courses.forEach((c: any) => {
+                const notifId = `pending-course-${c._id || c.id || c.slug}`;
+                if (!deletedIds.includes(notifId) && String(c.status).toLowerCase() === "pending") {
+                  const teacherName =
+                    typeof c.teacher === "object"
+                      ? c.teacher?.name || c.teacher?.email || "Instructor"
+                      : c.teacher || c.teacherName || "Instructor";
+
+                  notifList.push({
+                    id: notifId,
+                    title: "New Course Pending Approval ⏳",
+                    desc: `"${c.title}" was submitted by ${teacherName} for review.`,
+                    time: "Action Required",
+                    link: "/admin/dashboard?tab=courses",
+                    icon: Clock,
+                    color: "text-amber-400 bg-amber-500/10 border-amber-500/30",
+                    isRead: false,
+                  });
                 }
               });
             }
-          } catch (adminFetchErr) {}
+          } catch (e) {}
         }
 
-        // Merge courses from LocalStorage for instant real-time sync across tabs
+        // 3. Check Real-Time Live Classes for instant active alerts
         try {
-          const localCourses: any[] = JSON.parse(localStorage.getItem("educore_created_courses") || "[]");
-          localCourses.forEach((lc) => {
-            const existingIdx = coursesList.findIndex(
-              (c) => String(c._id) === String(lc._id) || String(c.id) === String(lc.id) || (lc.title && c.title === lc.title)
-            );
-            if (existingIdx === -1) {
-              coursesList.unshift(lc);
-            } else if (lc.status) {
-              coursesList[existingIdx] = { ...coursesList[existingIdx], status: lc.status };
-            }
+          const liveRes = await fetch(`${API_BASE_URL}/live-classes/my/classes?t=${Date.now()}`, {
+            headers: {
+              ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
+            },
           });
-        } catch (e) {}
-
-        if (user.role === "admin") {
-          // Sort courses so newest appear first
-          const sortedCourses = [...coursesList].sort((a: any, b: any) => {
-            const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-            const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-            return timeB - timeA;
-          });
-
-          sortedCourses.forEach((c: any) => {
-            const st = String(c.status || "pending").toLowerCase();
-            const teacherName =
-              typeof c.teacher === "object"
-                ? c.teacher?.name || c.teacher?.email || "Instructor"
-                : c.teacher || c.teacherName || "Instructor";
-
-            if (st === "pending") {
-              notifList.push({
-                id: `pending-${c._id || c.id || c.slug || c.title}`,
-                title: "New Course Pending Approval ⏳",
-                desc: `"${c.title}" was submitted by ${teacherName} for review.`,
-                time: "Action Required",
-                link: "/admin/dashboard?tab=courses",
-                icon: Clock,
-                color: "text-amber-400 bg-amber-500/10 border-amber-500/30",
-              });
-            } else if (st === "published" || st === "approved") {
-              notifList.push({
-                id: `published-${c._id || c.id || c.slug || c.title}`,
-                title: "Course Live & Published 🎓",
-                desc: `"${c.title}" by ${teacherName} is active for students.`,
-                time: c.createdAt ? new Date(c.createdAt).toLocaleDateString() : "Published",
-                link: "/admin/dashboard?tab=courses",
-                icon: BookOpen,
-                color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
-              });
-            } else if (st === "draft") {
-              notifList.push({
-                id: `draft-${c._id || c.id || c.slug || c.title}`,
-                title: "New Course in Draft 📝",
-                desc: `"${c.title}" draft was created by ${teacherName}.`,
-                time: "Draft",
-                link: "/admin/dashboard?tab=courses",
-                icon: Sparkles,
-                color: "text-purple-400 bg-purple-500/10 border-purple-500/30",
-              });
-            }
-          });
-        } else if (user.role === "teacher") {
-          const myCourses = coursesList.filter((c: any) => {
-            const tId = typeof c.teacher === "object" ? c.teacher?._id || c.teacher?.id : c.teacher;
-            const tEmail = typeof c.teacher === "object" ? c.teacher?.email : c.teacherEmail;
-            return (
-              tId === user.id ||
-              tId === (user as any)._id ||
-              (tEmail && tEmail.toLowerCase() === user.email?.toLowerCase())
-            );
-          });
-
-          myCourses.forEach((c: any) => {
-            const st = String(c.status || "pending").toLowerCase();
-            const isPub = st === "published" || st === "approved";
-            const isPend = st === "pending";
-
-            notifList.push({
-              id: `teacher-course-${c._id || c.id || c.slug || c.title}`,
-              title: isPub
-                ? "Course Live on Platform 🟢"
-                : isPend
-                  ? "Course Under Admin Review ⏳"
-                  : "Course in Draft 📝",
-              desc: isPub
-                ? `"${c.title}" is approved by Admin and published for students.`
-                : isPend
-                  ? `"${c.title}" is submitted and awaiting admin approval.`
-                  : `"${c.title}" is saved as draft.`,
-              time: isPub ? "Published" : isPend ? "Pending" : "Draft",
-              link: "/teacher/dashboard",
-              icon: isPub ? CheckCircle : Clock,
-              color: isPub
-                ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
-                : "text-amber-400 bg-amber-500/10 border-amber-500/30",
+          const liveData = await liveRes.json();
+          if (liveData.success && Array.isArray(liveData.liveClasses)) {
+            const activeLive = liveData.liveClasses.filter((l: any) => l.status === "live");
+            activeLive.forEach((l: any) => {
+              const liveId = `live-alert-${l._id}`;
+              if (!deletedIds.includes(liveId)) {
+                notifList.unshift({
+                  id: liveId,
+                  title: "🔴 LIVE CLASS HAPPENING NOW!",
+                  desc: `"${l.title}" is live! Click to join interactive video session.`,
+                  time: "LIVE NOW",
+                  link: `/live/${l._id}`,
+                  icon: Radio,
+                  color: "text-rose-400 bg-rose-500/20 border-rose-500/50",
+                  isRead: false,
+                });
+              }
             });
-          });
+          }
+        } catch (e) {
+          console.warn("Live notification fetch error in Navbar:", e);
         }
+
       } catch (err) {
         console.warn("Notification fetch fallback:", err);
-      }
-
-
-      // Check Real-Time Live Classes for instant alerts
-      try {
-        const activeToken =
-          token ||
-          (typeof window !== "undefined"
-            ? localStorage.getItem("educore_token") || localStorage.getItem("token")
-            : null);
-
-        const liveRes = await fetch(`${API_BASE_URL}/live-classes/my/classes?t=${Date.now()}`, {
-          headers: {
-            ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
-          },
-        });
-        const liveData = await liveRes.json();
-        if (liveData.success && Array.isArray(liveData.liveClasses)) {
-          // 1. Live Now sessions (Urgent Red Alert)
-          const activeLive = liveData.liveClasses.filter((l: any) => l.status === "live");
-          activeLive.forEach((l: any) => {
-            notifList.unshift({
-              id: `live-alert-${l._id}`,
-              title: "🔴 LIVE CLASS HAPPENING NOW!",
-              desc: `"${l.title}" is live! Click to join interactive video session.`,
-              time: "LIVE NOW",
-              link: `/live/${l._id}`,
-              icon: Radio,
-              color: "text-rose-400 bg-rose-500/20 border-rose-500/50",
-            });
-          });
-
-          // 2. Upcoming Scheduled Live sessions
-          const upcomingLive = liveData.liveClasses.filter((l: any) => l.status === "scheduled");
-          upcomingLive.forEach((l: any) => {
-            const formatted = new Date(l.scheduledStartTime).toLocaleString(undefined, {
-              month: "short",
-              day: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            });
-            const targetLink =
-              user?.role === "student"
-                ? "/student/dashboard?tab=liveClasses"
-                : user?.role === "teacher"
-                ? "/teacher/dashboard"
-                : `/live/${l._id}`;
-
-            notifList.unshift({
-              id: `upcoming-live-${l._id}`,
-              title: "📢 Live Class Scheduled",
-              desc: `"${l.title}" is scheduled for ${formatted}.`,
-              time: formatted,
-              link: targetLink,
-              icon: Calendar,
-              color: "text-purple-400 bg-purple-500/20 border-purple-500/40",
-            });
-          });
-        }
-      } catch (e) {
-        console.warn("Live notification fetch error in Navbar:", e);
-      }
-
-
-
-
-      // Default system notifications based on role
-      if (user.role === "admin") {
-        notifList.push({
-          id: "sys-admin-welcome",
-          title: "System Operations Online",
-          desc: "EduCore LMS database and Redis caching are active.",
-          time: "Just now",
-          link: "/admin/dashboard",
-          icon: ShieldAlert,
-          color: "text-purple-400 bg-purple-500/10 border-purple-500/30",
-        });
-      } else if (user.role === "teacher") {
-        notifList.push({
-          id: "teacher-assignment-sub",
-          title: "New Student Assignments",
-          desc: "You have 2 student submissions waiting for grading.",
-          time: "Today",
-          link: "/teacher/dashboard",
-          icon: Briefcase,
-          color: "text-blue-400 bg-blue-500/10 border-blue-500/30",
-        });
-      } else {
-        notifList.push({
-          id: "student-streak",
-          title: "5 Day Learning Streak Active!",
-          desc: "Complete 1 lesson today to keep your XP multiplier.",
-          time: "Today",
-          link: "/student/dashboard",
-          icon: Flame,
-          color: "text-amber-400 bg-amber-500/10 border-amber-500/30",
-        });
       }
 
       setNotifications(notifList);
@@ -371,7 +303,7 @@ export const Navbar: React.FC = () => {
     else router.push("/student/dashboard");
   };
 
-  const unreadCount = notifications.filter((n) => !readIds.includes(n.id)).length;
+  const unreadCount = notifications.filter((n) => !deletedIds.includes(n.id)).length;
 
   return (
     <header className="sticky top-0 z-50 bg-[#090d16]/95 backdrop-blur-xl border-b border-slate-800/80 shadow-lg">
@@ -488,63 +420,70 @@ export const Navbar: React.FC = () => {
                           </span>
                         )}
                       </div>
-                      {unreadCount > 0 && (
+                      {notifications.length > 0 && (
                         <button
                           onClick={markAllAsRead}
-                          className="text-[11px] font-semibold text-purple-400 hover:text-purple-300 hover:underline transition-all cursor-pointer"
+                          className="text-[11px] font-semibold text-purple-400 hover:text-purple-300 hover:underline transition-all cursor-pointer flex items-center gap-1"
+                          title="Clear all notifications"
                         >
-                          Mark all read
+                          <CheckCheck className="w-3.5 h-3.5" />
+                          <span>Clear all</span>
                         </button>
                       )}
                     </div>
 
                     <div className="max-h-80 overflow-y-auto divide-y divide-slate-800/60 p-2">
                       {notifications.length === 0 ? (
-                        <div className="py-8 text-center text-slate-500 text-xs font-medium">
-                          No notifications right now.
+                        <div className="py-8 text-center text-slate-400 space-y-1.5">
+                          <CheckCircle className="w-8 h-8 text-emerald-400/80 mx-auto" />
+                          <p className="text-xs font-bold text-slate-200">All caught up!</p>
+                          <p className="text-[11px] text-slate-500">No active notifications right now.</p>
                         </div>
                       ) : (
                         notifications.map((notif) => {
                           const IconComp = notif.icon || Bell;
-                          const isUnread = !readIds.includes(notif.id);
                           return (
-                            <Link
+                            <div
                               key={notif.id}
-                              href={notif.link || "#"}
-                              onClick={() => {
-                                markAsRead(notif.id);
-                                setNotificationsOpen(false);
-                              }}
-                              className={`p-3 rounded-2xl flex items-start gap-3 transition-colors hover:bg-slate-900/80 group ${
-                                isUnread ? "bg-purple-950/20" : ""
-                              }`}
+                              className="p-3 rounded-2xl flex items-start gap-3 transition-colors hover:bg-slate-900/80 group bg-purple-950/20 relative"
                             >
-                              <div
-                                className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border ${notif.color}`}
+                              <Link
+                                href={notif.link || "#"}
+                                onClick={() => {
+                                  dismissNotification(notif.id);
+                                  setNotificationsOpen(false);
+                                }}
+                                className="flex items-start gap-3 flex-1 min-w-0"
                               >
-                                <IconComp className="w-4 h-4" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between gap-1">
-                                  <p
-                                    className={`text-xs font-bold truncate ${
-                                      isUnread ? "text-white" : "text-slate-300"
-                                    }`}
-                                  >
-                                    {notif.title}
-                                  </p>
-                                  <span className="text-[10px] font-medium text-slate-400 shrink-0">
-                                    {notif.time}
-                                  </span>
+                                <div
+                                  className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border ${notif.color}`}
+                                >
+                                  <IconComp className="w-4 h-4" />
                                 </div>
-                                <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">
-                                  {notif.desc}
-                                </p>
-                              </div>
-                              {isUnread && (
-                                <span className="w-2 h-2 rounded-full bg-purple-500 mt-1.5 shrink-0" />
-                              )}
-                            </Link>
+                                <div className="flex-1 min-w-0 pr-6">
+                                  <div className="flex items-center justify-between gap-1">
+                                    <p className="text-xs font-bold truncate text-white">
+                                      {notif.title}
+                                    </p>
+                                    <span className="text-[10px] font-medium text-slate-400 shrink-0">
+                                      {notif.time}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">
+                                    {notif.desc}
+                                  </p>
+                                </div>
+                              </Link>
+
+                              {/* Individual dismiss / delete button */}
+                              <button
+                                onClick={(e) => dismissNotification(notif.id, e)}
+                                className="text-slate-500 hover:text-rose-400 p-1 rounded-lg hover:bg-slate-800/80 transition-colors shrink-0 cursor-pointer"
+                                title="Dismiss / Delete notification"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           );
                         })
                       )}

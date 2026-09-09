@@ -178,6 +178,9 @@ function UdemyLearningPlayerContent() {
   const [activeLesson, setActiveLesson] = useState<any>(null);
   const [completedLessons, setCompletedLessons] = useState<string[]>([]);
   const [isLoadingCourse, setIsLoadingCourse] = useState(true);
+  const [isApproved, setIsApproved] = useState(false);
+  const [enrollmentStatus, setEnrollmentStatus] = useState<string>("pending");
+  const [isRechecking, setIsRechecking] = useState(false);
 
   // Active step / subview on current lesson: "video" | "quiz" | "assignment"
   const [activeSubView, setActiveSubView] = useState<"video" | "quiz" | "assignment">("video");
@@ -219,30 +222,22 @@ function UdemyLearningPlayerContent() {
 
       setCourse(foundCourse);
 
-      // Guarantee backend enrollment persistence for this student in MongoDB
-      if (token && targetId) {
-        try {
-          await fetch(`${API_BASE_URL}/student/enroll`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ courseId: foundCourse?._id || targetId }),
-          });
-        } catch (e) { }
+      let approved = false;
+      let status = "pending";
+
+      if (user?.role === "admin" || user?.role === "teacher") {
+        approved = true;
+        status = "approved";
+      } else if (foundCourse) {
+        if (foundCourse.isApproved !== undefined) {
+          approved = Boolean(foundCourse.isApproved);
+        }
+        if (foundCourse.enrollmentStatus) {
+          status = foundCourse.enrollmentStatus;
+        }
       }
 
-      // Sync to localStorage
-      try {
-        const storedEnrolled: string[] = JSON.parse(localStorage.getItem("educore_enrolled_courses") || "[]");
-        if (!storedEnrolled.includes(targetId)) storedEnrolled.push(targetId);
-        if (foundCourse?._id && !storedEnrolled.includes(foundCourse._id)) storedEnrolled.push(foundCourse._id);
-        if (foundCourse?.slug && !storedEnrolled.includes(foundCourse.slug)) storedEnrolled.push(foundCourse.slug);
-        localStorage.setItem("educore_enrolled_courses", JSON.stringify(storedEnrolled));
-      } catch (e) { }
-
-      // 3. Load Saved Progress (Completed Lessons)
+      // 3. Check student progress and approval status from backend
       let savedCompleted: string[] = [];
       try {
         const localProgress = localStorage.getItem(`educore_progress_${targetId}`);
@@ -253,16 +248,26 @@ function UdemyLearningPlayerContent() {
 
       if (token && targetId) {
         try {
-          const pRes = await fetch(`${API_BASE_URL}/student/progress/${targetId}`, {
+          const pRes = await fetch(`${API_BASE_URL}/student/progress/${targetId}?t=${Date.now()}`, {
             headers: { Authorization: `Bearer ${token}` },
           });
           const pData = await pRes.json();
-          if (pData.success && pData.progress?.completedLessons) {
-            savedCompleted = Array.from(new Set([...savedCompleted, ...pData.progress.completedLessons]));
+          if (pData.success) {
+            if (pData.isApproved !== undefined) {
+              approved = Boolean(pData.isApproved);
+            }
+            if (pData.enrollmentStatus) {
+              status = pData.enrollmentStatus;
+            }
+            if (pData.progress?.completedLessons) {
+              savedCompleted = Array.from(new Set([...savedCompleted, ...pData.progress.completedLessons]));
+            }
           }
         } catch (e) { }
       }
 
+      setIsApproved(approved);
+      setEnrollmentStatus(status);
       setCompletedLessons(savedCompleted);
 
       // Helper to check if a lesson is completed across any ID format
@@ -617,6 +622,172 @@ function UdemyLearningPlayerContent() {
         >
           Return to Catalog
         </Link>
+      </div>
+    );
+  }
+
+  // 🔒 ACCESS CONTROL: If user is not admin/teacher and enrollment is NOT approved by admin
+  if (!isApproved && user?.role !== "admin" && user?.role !== "teacher") {
+    const isDeclined = enrollmentStatus === "rejected";
+    const teacherName = course.teacher?.name || course.teacherName || "Course Instructor";
+
+    return (
+      <div className="min-h-screen bg-[#070a12] text-slate-100 flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-hidden">
+        {/* Background glow effects */}
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[32rem] h-[32rem] bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-1/4 left-1/2 -translate-x-1/2 w-[28rem] h-[28rem] bg-amber-600/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="max-w-2xl w-full glass-panel p-6 sm:p-10 rounded-3xl border border-amber-500/30 bg-gradient-to-b from-slate-950/90 via-slate-900/80 to-slate-950/90 shadow-2xl relative z-10 text-center space-y-6">
+          {/* Animated Lock Hologram */}
+          <div className="flex justify-center">
+            <div className="relative">
+              <div className={`w-20 h-20 sm:w-24 sm:h-24 rounded-3xl border flex items-center justify-center shadow-xl backdrop-blur-md ${
+                isDeclined
+                  ? "bg-rose-500/20 border-rose-500/40 shadow-rose-950/50"
+                  : "bg-amber-500/20 border-amber-500/40 shadow-amber-950/50"
+              }`}>
+                {isDeclined ? (
+                  <ShieldAlert className="w-10 h-10 sm:w-12 sm:h-12 text-rose-400" />
+                ) : (
+                  <Lock className="w-10 h-10 sm:w-12 sm:h-12 text-amber-400 animate-pulse" />
+                )}
+              </div>
+              <span className={`absolute -bottom-2 -right-2 px-2.5 py-0.5 rounded-full text-[10px] font-black flex items-center gap-1 shadow border ${
+                isDeclined
+                  ? "bg-rose-950 border-rose-500 text-rose-300"
+                  : "bg-amber-950 border-amber-500 text-amber-300"
+              }`}>
+                {isDeclined ? "CANCELLED" : "UNDER REVIEW"}
+              </span>
+            </div>
+          </div>
+
+          {/* Badge & Title */}
+          <div className="space-y-2">
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${
+              isDeclined
+                ? "bg-rose-500/10 border-rose-500/30 text-rose-300"
+                : "bg-amber-500/10 border-amber-500/30 text-amber-300"
+            }`}>
+              <Clock className="w-3.5 h-3.5" />
+              <span>{isDeclined ? "Enrollment Denied by Admin" : "Awaiting Administrator Approval"}</span>
+            </span>
+
+            <h1 className="text-xl sm:text-2xl font-black text-white">
+              {isDeclined ? "Access Denied / Enrollment Cancelled" : "Course Video Lectures Locked 🔒"}
+            </h1>
+
+            <p className="text-xs sm:text-sm text-slate-400 max-w-lg mx-auto leading-relaxed">
+              {isDeclined
+                ? `Your enrollment request for "${course.title}" was declined by the platform administrator. You do not have access to view this course's lectures.`
+                : `Your enrollment in "${course.title}" has been submitted. In accordance with platform security controls, all video lectures remain locked until an administrator reviews and approves your enrollment.`}
+            </p>
+          </div>
+
+          {/* Details Card */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-2xl bg-slate-900/60 border border-slate-800 text-left text-xs">
+            <div>
+              <span className="text-slate-500 block text-[10px] uppercase font-bold">Course Title</span>
+              <span className="font-bold text-white line-clamp-1">{course.title}</span>
+            </div>
+            <div>
+              <span className="text-slate-500 block text-[10px] uppercase font-bold">Course Instructor</span>
+              <span className="font-bold text-purple-300">{teacherName}</span>
+            </div>
+            <div>
+              <span className="text-slate-500 block text-[10px] uppercase font-bold">Student Account</span>
+              <span className="font-bold text-white">{user?.name || "Student"} ({user?.email})</span>
+            </div>
+            <div>
+              <span className="text-slate-500 block text-[10px] uppercase font-bold">Approval Status</span>
+              <span className={`font-bold flex items-center gap-1.5 ${
+                isDeclined ? "text-rose-400" : "text-amber-400"
+              }`}>
+                <span className="w-2 h-2 rounded-full bg-current animate-ping" />
+                <span>{isDeclined ? "Rejected by Admin" : "Pending Admin Verification"}</span>
+              </span>
+            </div>
+          </div>
+
+          {/* Security Features Info */}
+          {!isDeclined && (
+            <div className="flex flex-wrap items-center justify-center gap-4 text-[11px] text-slate-400">
+              <span className="flex items-center gap-1.5 bg-slate-900/40 px-3 py-1.5 rounded-xl border border-slate-800">
+                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                <span>Instant Auto-Unlock Upon Approval</span>
+              </span>
+              <span className="flex items-center gap-1.5 bg-slate-900/40 px-3 py-1.5 rounded-xl border border-slate-800">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Backend Controlled Security</span>
+              </span>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+            {!isDeclined && (
+              <button
+                onClick={async () => {
+                  setIsRechecking(true);
+                  const token = localStorage.getItem("token") || localStorage.getItem("educore_token");
+                  if (token) {
+                    try {
+                      const res = await fetch(`${API_BASE_URL}/courses/${targetId}?t=${Date.now()}`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                      });
+                      const data = await res.json();
+                      if (data.success && data.course) {
+                        setCourse(data.course);
+                        if (data.course.isApproved) {
+                          setIsApproved(true);
+                          setEnrollmentStatus("approved");
+                          Swal.fire({
+                            icon: "success",
+                            title: "Access Approved! 🎉",
+                            text: "Your enrollment is now approved! Enjoy learning.",
+                            background: "#0f172a",
+                            color: "#ffffff",
+                          });
+                          return;
+                        }
+                      }
+                    } catch (e) {}
+                  }
+                  setTimeout(() => setIsRechecking(false), 800);
+                }}
+                disabled={isRechecking}
+                className="w-full sm:w-auto px-6 py-3 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-500 shadow-lg shadow-amber-600/30 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isRechecking ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Checking Status...</span>
+                  </>
+                ) : (
+                  <>
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>Refresh Approval Status</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            <Link
+              href="/student/dashboard"
+              className="w-full sm:w-auto px-6 py-3 rounded-xl text-xs font-bold text-white gradient-button flex items-center justify-center gap-2 shadow-lg shadow-purple-600/30"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>Go to Student Dashboard</span>
+            </Link>
+
+            <Link
+              href="/courses"
+              className="w-full sm:w-auto px-6 py-3 rounded-xl text-xs font-bold text-slate-300 bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-center gap-2"
+            >
+              <span>Explore Courses</span>
+            </Link>
+          </div>
+        </div>
       </div>
     );
   }

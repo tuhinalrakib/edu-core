@@ -37,6 +37,8 @@ export default function CourseDetailsPage() {
   const [course, setCourse] = useState<CourseType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isEnrolled, setIsEnrolled] = useState(false);
+  const [isApproved, setIsApproved] = useState(false);
+  const [enrollmentStatus, setEnrollmentStatus] = useState<"pending" | "approved" | "rejected" | "not_enrolled">("not_enrolled");
   const [completedLessons, setCompletedLessons] = useState<string[]>([]);
   const [isEnrolling, setIsEnrolling] = useState(false);
   const [courseLiveClasses, setCourseLiveClasses] = useState<any[]>([]);
@@ -106,9 +108,11 @@ export default function CourseDetailsPage() {
             });
             const pData = await pRes.json();
             if (pData.success) {
-              if (pData.isEnrolled || (pData.progress?.completedLessons && pData.progress.completedLessons.length > 0)) {
+              if (pData.isEnrolled) {
                 enrolled = true;
               }
+              setIsApproved(Boolean(pData.isApproved));
+              setEnrollmentStatus(pData.enrollmentStatus || (pData.isApproved ? "approved" : pData.isEnrolled ? "pending" : "not_enrolled"));
               if (pData.progress?.completedLessons) {
                 completed = Array.from(new Set([...completed, ...pData.progress.completedLessons]));
               }
@@ -120,6 +124,8 @@ export default function CourseDetailsPage() {
         setCompletedLessons(completed);
       } else {
         setIsEnrolled(false);
+        setIsApproved(false);
+        setEnrollmentStatus("not_enrolled");
       }
 
       // Fetch live interactive sessions for this course
@@ -268,8 +274,10 @@ export default function CourseDetailsPage() {
 
       // 2. Call backend enrollment API if token exists
       const token = localStorage.getItem("token") || localStorage.getItem("educore_token");
+      let enrollmentResData: any = null;
+
       if (token) {
-        await fetch(`${API_BASE_URL}/student/enroll`, {
+        const enrollRes = await fetch(`${API_BASE_URL}/student/enroll`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -277,6 +285,7 @@ export default function CourseDetailsPage() {
           },
           body: JSON.stringify({ courseId: course._id || course.slug }),
         });
+        enrollmentResData = await enrollRes.json();
 
         if (refreshEnrolledCourses) {
           await refreshEnrolledCourses(token);
@@ -285,20 +294,45 @@ export default function CourseDetailsPage() {
 
       setIsEnrolled(true);
 
-      // Student Enrolled!
-      Swal.fire({
-        icon: "success",
-        title: "Enrollment Confirmed! 🎉",
-        text: "You are now enrolled in this course. Taking you to your course player...",
-        timer: 1500,
-        showConfirmButton: false,
-        background: "#0f172a",
-        color: "#ffffff",
-      });
-
-      setTimeout(() => {
-        router.push(`/student/learn/${course?.slug || course?._id}`);
-      }, 1500);
+      if (enrollmentResData?.isApproved || enrollmentResData?.status === "approved") {
+        setIsApproved(true);
+        setEnrollmentStatus("approved");
+        Swal.fire({
+          icon: "success",
+          title: "Enrollment Approved! 🎉",
+          text: "You have full access. Taking you to your course player...",
+          timer: 1500,
+          showConfirmButton: false,
+          background: "#0f172a",
+          color: "#ffffff",
+        });
+        setTimeout(() => {
+          router.push(`/student/learn/${course?.slug || course?._id}`);
+        }, 1500);
+      } else {
+        // Pending Admin Approval
+        setIsApproved(false);
+        setEnrollmentStatus("pending");
+        Swal.fire({
+          icon: "info",
+          title: "Enrollment Submitted ⏳",
+          html: `
+            <div class="text-left space-y-3">
+              <p class="text-sm text-slate-300">Your enrollment request for <strong>"${course.title}"</strong> has been saved.</p>
+              <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs leading-relaxed">
+                <strong>Admin Review Required:</strong> In accordance with platform security, course video lectures are withheld until an administrator approves your enrollment.
+              </div>
+              <p class="text-xs text-slate-400">You will receive a notification as soon as your access is approved.</p>
+            </div>
+          `,
+          confirmButtonText: "Go to Course Status",
+          confirmButtonColor: "#7c3aed",
+          background: "#0f172a",
+          color: "#ffffff",
+        }).then(() => {
+          router.push(`/student/learn/${course?.slug || course?._id}`);
+        });
+      }
     } catch (e) {
       console.error("Enrollment error:", e);
       router.push(`/student/learn/${course?.slug || course?._id}`);
@@ -633,14 +667,14 @@ export default function CourseDetailsPage() {
               </div>
 
               {/* DYNAMIC CARD CONTENT BASED ON ENROLLMENT / ROLE */}
-              {isEnrolled ? (
-                /* ENROLLED STUDENT VIEW */
+              {isEnrolled && isApproved ? (
+                /* ENROLLED & APPROVED STUDENT VIEW */
                 <div className="space-y-4">
                   <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-400">
                         <CheckCircle className="w-4 h-4" />
-                        <span>Enrolled in this Course</span>
+                        <span>Enrolled & Approved</span>
                       </span>
                       <span className="text-xs font-mono font-bold text-purple-300">
                         {progressPercentage}%
@@ -673,6 +707,40 @@ export default function CourseDetailsPage() {
                   >
                     <GraduationCap className="w-4 h-4 text-purple-400" />
                     <span>Go to Student Dashboard</span>
+                  </Link>
+                </div>
+              ) : isEnrolled && !isApproved ? (
+                /* ENROLLED BUT PENDING ADMIN APPROVAL VIEW */
+                <div className="space-y-4">
+                  <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/40 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-400">
+                        <Clock className="w-4 h-4 animate-pulse" />
+                        <span>Pending Admin Approval</span>
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
+                        Under Review
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Your enrollment request is awaiting administrator approval. Course videos will unlock automatically once approved.
+                    </p>
+                  </div>
+
+                  <Link
+                    href={`/student/learn/${course.slug || course._id}`}
+                    className="w-full py-3.5 rounded-xl text-xs font-bold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>View Status & Curriculum</span>
+                  </Link>
+
+                  <Link
+                    href="/student/dashboard"
+                    className="w-full py-3 rounded-xl text-xs font-bold text-slate-300 bg-slate-800/80 hover:bg-slate-700 hover:text-white border border-slate-700/80 flex items-center justify-center gap-1.5 transition-all"
+                  >
+                    <GraduationCap className="w-4 h-4 text-purple-400" />
+                    <span>Return to Student Dashboard</span>
                   </Link>
                 </div>
               ) : user?.role === "teacher" ? (
