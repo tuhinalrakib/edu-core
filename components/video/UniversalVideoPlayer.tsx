@@ -41,6 +41,10 @@ export function UniversalVideoPlayer({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
+  // Providers where EduCore can control playback via API (YouTube or direct HTML5 video).
+  // Google Drive and Vimeo provide their own full native player UI inside iframe.
+  const hasCustomControls = parsed.provider === "youtube" || !parsed.isIframe;
+
   const [hasError, setHasError] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(85); // 0 to 100
@@ -453,8 +457,8 @@ export function UniversalVideoPlayer({
           />
         )}
 
-        {/* Center Big Play Button when paused */}
-        {!isPlaying && (
+        {/* Center Big Play Button when paused (Only for providers with EduCore custom control) */}
+        {hasCustomControls && !isPlaying && (
           <button
             onClick={togglePlay}
             className="absolute inset-0 m-auto w-16 h-16 rounded-full bg-purple-600/90 hover:bg-purple-600 text-white flex items-center justify-center shadow-2xl shadow-purple-600/50 transition-transform hover:scale-110 z-20 cursor-pointer backdrop-blur-sm border border-white/20"
@@ -465,7 +469,7 @@ export function UniversalVideoPlayer({
         )}
 
         {/* Floating Quick Fullscreen Button on Top-Right Corner (when not in fullscreen) */}
-        {!isFullscreen && (
+        {hasCustomControls && !isFullscreen && (
           <button
             onClick={toggleFullscreen}
             className="absolute top-3 right-3 z-30 px-3 py-1.5 rounded-xl bg-black/80 hover:bg-purple-600 border border-slate-700 hover:border-purple-400 text-white text-xs font-bold transition-all shadow-xl flex items-center gap-1.5 cursor-pointer backdrop-blur-md"
@@ -477,11 +481,12 @@ export function UniversalVideoPlayer({
         )}
       </div>
 
-      {/* 2. ALWAYS-VISIBLE / AUTO-HIDING EDUCORE CONTROLLER BAR */}
-      <div
-        className={`w-full bg-slate-950/95 border-t border-slate-800/90 px-3 sm:px-5 py-2.5 space-y-2 z-30 relative transition-all duration-300 ${
-          isFullscreen && !showControls ? "opacity-0 pointer-events-none translate-y-4" : "opacity-100 pointer-events-auto translate-y-0"
-        }`}
+      {/* 2. ALWAYS-VISIBLE / AUTO-HIDING EDUCORE CONTROLLER BAR (Only for YouTube and Direct Video) */}
+      {hasCustomControls && (
+        <div
+          className={`w-full bg-slate-950/95 border-t border-slate-800/90 px-3 sm:px-5 py-2.5 space-y-2 z-30 relative transition-all duration-300 ${
+            isFullscreen && !showControls ? "opacity-0 pointer-events-none translate-y-4" : "opacity-100 pointer-events-auto translate-y-0"
+          }`}
         style={{
           paddingBottom: isFullscreen ? "max(env(safe-area-inset-bottom, 12px), 12px)" : undefined,
           paddingLeft: isFullscreen ? "max(env(safe-area-inset-left, 12px), 12px)" : undefined,
@@ -601,6 +606,7 @@ export function UniversalVideoPlayer({
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

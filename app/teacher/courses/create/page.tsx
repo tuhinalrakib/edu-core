@@ -158,8 +158,11 @@ function CourseBuilderContent() {
       let targetCourse: any = null;
 
       try {
+        const headers: any = {};
+        if (token) headers.Authorization = `Bearer ${token}`;
         const res = await fetch(`${API_BASE_URL}/courses/${editCourseId}?t=${Date.now()}`, {
           cache: "no-store",
+          headers,
         });
         if (res.ok) {
           const data = await res.json();
@@ -583,19 +586,38 @@ function CourseBuilderContent() {
     if (!activeModalLesson) return;
 
     const { sIdx, lIdx, lesson } = activeModalLesson;
-    const updated = [...sections];
-    updated[sIdx].lessons[lIdx] = lesson;
+    const updated = sections.map((sec, sI) => {
+      if (sI !== sIdx) return sec;
+      return {
+        ...sec,
+        lessons: sec.lessons.map((les: any, lI: number) => {
+          if (lI !== lIdx) return les;
+          return { ...lesson };
+        }),
+      };
+    });
     setSections(updated);
     setActiveModalLesson(null);
 
     Swal.fire({
       icon: "success",
-      title: "Lesson Saved!",
-      text: "Lesson content and settings updated.",
+      title: "Lesson Changes Applied! ✅",
+      html: `
+        <div class="text-left space-y-2 text-xs text-slate-200 mt-2">
+          <p class="text-emerald-400 font-semibold">✓ Lesson updated in builder preview.</p>
+          <div class="bg-purple-950/40 border border-purple-500/30 rounded-xl p-3 text-purple-200 leading-relaxed">
+            📢 <strong>Important Next Step:</strong><br />
+            To save this Google Drive video permanently to the database, click 
+            <span class="text-white font-bold underline decoration-purple-400">"Update Course Details"</span> 
+            at the top or bottom of this page!
+          </div>
+        </div>
+      `,
       background: "#0f172a",
       color: "#ffffff",
       confirmButtonColor: "#7c3aed",
-      timer: 1500,
+      confirmButtonText: "Understood",
+      timer: 4000,
     });
   };
 
@@ -1401,8 +1423,9 @@ function CourseBuilderContent() {
         {/* ========================================================================= */}
         {activeModalLesson && (
           <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-            <div className="bg-slate-900 border border-slate-800 max-w-2xl w-full rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl my-8">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div className="bg-slate-900 border border-slate-800 max-w-2xl w-full rounded-3xl p-6 sm:p-7 shadow-2xl my-auto max-h-[90vh] flex flex-col">
+              {/* Fixed Modal Header */}
+              <div className="flex items-center justify-between border-b border-slate-800 pb-4 shrink-0">
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-purple-400">
                     Lesson Content Editor
@@ -1414,13 +1437,14 @@ function CourseBuilderContent() {
                 <button
                   type="button"
                   onClick={() => setActiveModalLesson(null)}
-                  className="text-slate-400 hover:text-white"
+                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <form onSubmit={handleSaveLessonModal} className="space-y-5 max-h-[75vh] overflow-y-auto pr-2">
+              {/* Scrollable Form Body */}
+              <form id="lesson-modal-form" onSubmit={handleSaveLessonModal} className="space-y-5 overflow-y-auto py-4 pr-2 flex-1 min-h-0">
                 {/* Item Title */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">Item Title</label>
@@ -1623,6 +1647,20 @@ function CourseBuilderContent() {
                             title={activeModalLesson.lesson.title || "Lesson Video Preview"}
                             className="rounded-xl overflow-hidden border border-slate-800 shadow-xl"
                           />
+                          <div className="flex items-center justify-between gap-2 mt-3 pt-2.5 border-t border-slate-800/60">
+                            <span className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              <span>Preview verified</span>
+                            </span>
+                            <button
+                              type="submit"
+                              form="lesson-modal-form"
+                              className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 shadow-lg shadow-purple-900/40 flex items-center gap-1.5 transition-all cursor-pointer"
+                            >
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              <span>Apply & Save Video Link</span>
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -2305,23 +2343,32 @@ function CourseBuilderContent() {
                   )}
                 </div>
 
-                {/* Save / Close Modal Buttons */}
-                <div className="flex justify-end gap-2 pt-4 border-t border-slate-800">
+              </form>
+
+              {/* Sticky Fixed Footer - Always Visible at bottom */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 pb-1 border-t border-slate-800 shrink-0 bg-slate-900">
+                <div className="text-[11px] text-amber-300/90 font-medium flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>After saving here, click <strong>"Update Course Details"</strong> on the main page.</span>
+                </div>
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                   <button
                     type="button"
                     onClick={() => setActiveModalLesson(null)}
-                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-300 bg-slate-800 hover:bg-slate-700"
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 transition-all"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2 rounded-xl text-xs font-bold text-white gradient-button shadow-md"
+                    form="lesson-modal-form"
+                    className="px-5 py-2 rounded-xl text-xs font-bold text-white gradient-button shadow-lg shadow-purple-600/30 flex items-center gap-1.5 hover:scale-[1.02] active:scale-[0.98] transition-all"
                   >
-                    Save Lesson Changes
+                    <CheckCircle className="w-4 h-4" />
+                    <span>Save Lesson Changes</span>
                   </button>
                 </div>
-              </form>
+              </div>
             </div>
           </div>
         )}
