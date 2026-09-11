@@ -3,10 +3,10 @@
  * cleanly inside embedded web players without taking users away to third-party sites.
  */
 
-export type VideoProviderType = "youtube" | "gdrive" | "googledrive" | "vimeo" | "cloudinary" | "mp4" | string;
+export type VideoProviderType = "youtube" | "gdrive" | "googledrive" | "vimeo" | "bunny" | "cloudinary" | "mp4" | string;
 
 export interface ParsedVideo {
-  provider: "youtube" | "gdrive" | "vimeo" | "mp4" | "cloudinary" | "unknown";
+  provider: "youtube" | "gdrive" | "vimeo" | "bunny" | "mp4" | "cloudinary" | "unknown";
   embedUrl: string;
   originalUrl: string;
   isIframe: boolean;
@@ -116,7 +116,23 @@ export function parseVideoUrl(url: string = "", specifiedProvider?: string): Par
     }
   }
 
-  // 4. Direct Video Link (Cloudinary, MP4, WebM, etc.)
+  // 4. Check Bunny Stream
+  if (
+    cleanUrl.includes("mediadelivery.net") ||
+    cleanUrl.includes("bunnycdn.com") ||
+    cleanUrl.includes("b-cdn.net") ||
+    specifiedProvider === "bunny"
+  ) {
+    return {
+      provider: "bunny",
+      embedUrl: cleanUrl,
+      originalUrl: cleanUrl,
+      isIframe: true,
+      isValid: true,
+    };
+  }
+
+  // 5. Direct Video Link (Cloudinary, MP4, WebM, etc.)
   if (
     specifiedProvider === "cloudinary" ||
     specifiedProvider === "mp4" ||

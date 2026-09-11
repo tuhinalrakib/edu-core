@@ -73,7 +73,7 @@ const getPresetDateTime = (daysFromNow: number, hour24 = 22, minute = 0) => {
 };
 
 type LessonType = "video" | "pdf" | "audio" | "attachment" | "quiz" | "assignment";
-type VideoProvider = "cloudinary" | "youtube" | "gdrive" | "googledrive" | "vimeo" | "mp4";
+type VideoProvider = "cloudinary" | "youtube" | "gdrive" | "googledrive" | "vimeo" | "bunny" | "mp4";
 type QuestionType = "mcq" | "true_false" | "fill_blank" | "coding";
 
 function CourseBuilderContent() {

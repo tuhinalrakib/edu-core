@@ -456,7 +456,7 @@ export function UniversalVideoPlayer({
                   ? "Buffering YouTube Video..."
                   : parsed.provider === "vimeo"
                   ? "Buffering Vimeo Stream..."
-                  : parsed.provider === "bunny"
+                  : (parsed.provider as string) === "bunny"
                   ? "Connecting Bunny Stream CDN..."
                   : "Buffering Video Lecture..."}
               </div>
