@@ -74,6 +74,13 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <head>
         <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+        {/* Preconnect & DNS-Prefetch for Fast Video Streaming & Low Latency */}
+        <link rel="preconnect" href="https://drive.google.com" />
+        <link rel="dns-prefetch" href="https://drive.google.com" />
+        <link rel="preconnect" href="https://googleusercontent.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://video.google.com" />
+        <link rel="preconnect" href="https://www.youtube-nocookie.com" />
+        <link rel="preconnect" href="https://player.vimeo.com" />
         <meta property="og:image" content="/og-image.svg" />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />

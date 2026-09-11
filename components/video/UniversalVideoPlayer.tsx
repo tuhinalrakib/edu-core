@@ -15,6 +15,7 @@ import {
   AlertCircle,
   ExternalLink,
   RefreshCw,
+  Loader2,
 } from "lucide-react";
 
 interface UniversalVideoPlayerProps {
@@ -46,6 +47,8 @@ export function UniversalVideoPlayer({
   const hasCustomControls = parsed.provider === "youtube" || !parsed.isIframe;
 
   const [hasError, setHasError] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [slowLoadWarning, setSlowLoadWarning] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(85); // 0 to 100
   const [isMuted, setIsMuted] = useState(false);
@@ -55,6 +58,44 @@ export function UniversalVideoPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const hideControlsTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Reset loading state and timeout whenever the video URL or parsed embed URL changes
+  useEffect(() => {
+    setIsLoading(true);
+    setHasError(false);
+    setSlowLoadWarning(false);
+
+    const timer = setTimeout(() => {
+      setSlowLoadWarning(true);
+    }, 7000); // After 7 seconds, display helpful direct link option
+
+    return () => clearTimeout(timer);
+  }, [url, parsed.embedUrl]);
+
+  // Network Preconnect & DNS prefetch to drastically cut down initial DNS/SSL latency for Drive/video origins
+  useEffect(() => {
+    if (parsed.provider === "gdrive") {
+      const origins = [
+        "https://drive.google.com",
+        "https://googleusercontent.com",
+        "https://video.google.com",
+      ];
+      origins.forEach((href) => {
+        if (!document.querySelector(`link[href="${href}"]`)) {
+          const preconnect = document.createElement("link");
+          preconnect.rel = "preconnect";
+          preconnect.href = href;
+          preconnect.crossOrigin = "anonymous";
+          document.head.appendChild(preconnect);
+
+          const dnsPrefetch = document.createElement("link");
+          dnsPrefetch.rel = "dns-prefetch";
+          dnsPrefetch.href = href;
+          document.head.appendChild(dnsPrefetch);
+        }
+      });
+    }
+  }, [parsed.provider]);
 
   // Send command to YouTube Iframe API
   const sendYoutubeCommand = useCallback((func: string, args: any[] = []) => {
@@ -394,6 +435,64 @@ export function UniversalVideoPlayer({
           isFullscreen ? "h-full max-h-full" : "aspect-video"
         }`}
       >
+        {/* Loading Spinner & Status Screen Overlay */}
+        {isLoading && !hasError && (
+          <div className="absolute inset-0 bg-slate-950/95 backdrop-blur-md z-20 flex flex-col items-center justify-center p-6 text-center select-none transition-all duration-300">
+            {/* Animated glowing rings & spinner */}
+            <div className="relative flex items-center justify-center mb-4">
+              <div className="absolute w-24 h-24 rounded-full bg-purple-600/20 blur-xl animate-pulse" />
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-purple-600/40 relative">
+                <Loader2 className="w-7 h-7 text-white animate-spin" />
+              </div>
+            </div>
+
+            {/* Status badge & title */}
+            <div className="space-y-1.5 max-w-sm">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-[11px] font-semibold text-purple-300">
+                <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping" />
+                {parsed.provider === "gdrive"
+                  ? "Connecting Google Drive Stream..."
+                  : parsed.provider === "youtube"
+                  ? "Buffering YouTube Video..."
+                  : parsed.provider === "vimeo"
+                  ? "Buffering Vimeo Stream..."
+                  : parsed.provider === "bunny"
+                  ? "Connecting Bunny Stream CDN..."
+                  : "Buffering Video Lecture..."}
+              </div>
+
+              <h4 className="text-sm font-bold text-white tracking-wide">
+                {title || "Loading Lesson Video"}
+              </h4>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                {parsed.provider === "gdrive"
+                  ? "Establishing secure stream with Google Drive servers. Initializing adaptive player..."
+                  : "Optimizing connection bandwidth and preparing high-definition playback..."}
+              </p>
+            </div>
+
+            {/* Indeterminate pulsing gradient progress bar */}
+            <div className="w-48 h-1.5 bg-slate-800 rounded-full overflow-hidden mt-5">
+              <div className="w-full h-full bg-gradient-to-r from-purple-500 via-pink-500 to-indigo-500 animate-pulse rounded-full" />
+            </div>
+
+            {/* Slow connection helper button if Drive takes more than 7s */}
+            {slowLoadWarning && parsed.provider === "gdrive" && (
+              <div className="mt-4 flex flex-col items-center gap-1.5">
+                <p className="text-[10px] text-amber-300/80">Google Drive stream buffering slower than usual?</p>
+                <a
+                  href={parsed.originalUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-purple-300 flex items-center gap-1 font-semibold transition-colors"
+                >
+                  Watch Directly on Google Drive <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+
         {hasError ? (
           <div className="absolute inset-0 bg-slate-950 flex flex-col items-center justify-center p-6 text-center z-10 space-y-3">
             <AlertCircle className="w-10 h-10 text-amber-400" />
@@ -405,7 +504,10 @@ export function UniversalVideoPlayer({
             </p>
             <div className="flex gap-2 pt-2">
               <button
-                onClick={() => setHasError(false)}
+                onClick={() => {
+                  setHasError(false);
+                  setIsLoading(true);
+                }}
                 className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-purple-300 flex items-center gap-1 font-semibold cursor-pointer"
               >
                 <RefreshCw className="w-3.5 h-3.5" /> Retry
@@ -426,11 +528,46 @@ export function UniversalVideoPlayer({
               ref={iframeRef}
               src={parsed.embedUrl}
               title={title}
-              className="w-full h-full border-0 absolute inset-0 bg-black"
+              loading="eager"
+              className={`w-full h-full border-0 absolute inset-0 bg-black transition-opacity duration-300 ${
+                isLoading ? "opacity-0" : "opacity-100"
+              }`}
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
               allowFullScreen
-              onError={() => setHasError(true)}
+              onLoad={() => setIsLoading(false)}
+              onError={() => {
+                setIsLoading(false);
+                setHasError(true);
+              }}
             />
+            {/* Google Drive Pop-Out Blocker Shield: Completely covers and disables the pop-out button */}
+            {parsed.provider === "gdrive" && !isLoading && !hasError && (
+              <div
+                className="absolute top-0 right-0 w-20 h-16 z-30 bg-black select-none pointer-events-auto cursor-default transition-all"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onMouseUp={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onDoubleClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                title=""
+                aria-hidden="true"
+              />
+            )}
           </div>
         ) : (
           <video
@@ -440,6 +577,14 @@ export function UniversalVideoPlayer({
             autoPlay={autoPlay}
             playsInline
             webkit-playsinline="true"
+            preload="auto"
+            className={`w-full h-full object-contain bg-black max-h-full transition-opacity duration-300 ${
+              isLoading ? "opacity-0" : "opacity-100"
+            }`}
+            onLoadedData={() => setIsLoading(false)}
+            onCanPlay={() => setIsLoading(false)}
+            onWaiting={() => setIsLoading(true)}
+            onPlaying={() => setIsLoading(false)}
             onTimeUpdate={() => {
               if (videoRef.current) {
                 setCurrentTime(Math.floor(videoRef.current.currentTime));
@@ -452,8 +597,10 @@ export function UniversalVideoPlayer({
             }}
             onPlay={() => setIsPlaying(true)}
             onPause={() => setIsPlaying(false)}
-            className="w-full h-full object-contain bg-black max-h-full"
-            onError={() => setHasError(true)}
+            onError={() => {
+              setIsLoading(false);
+              setHasError(true);
+            }}
           />
         )}
 

@@ -33,7 +33,7 @@ export function extractGoogleDriveId(url: string): string | null {
   // https://drive.google.com/open?id=1ABC123xyz...
   // https://drive.google.com/uc?id=1ABC123xyz...
   // https://drive.google.com/file/d/1ABC123xyz.../preview
-  const fileDMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+  const fileDMatch = url.match(/\/file\/(?:u\/\d+\/)?d\/([a-zA-Z0-9_-]+)/);
   if (fileDMatch && fileDMatch[1]) return fileDMatch[1];
 
   const openIdMatch = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
