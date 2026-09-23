@@ -65,18 +65,38 @@ export default function Home() {
   useEffect(() => {
     const fetchHomeData = async () => {
       setIsLoading(true);
+      if (!API_BASE_URL) {
+        console.warn("API_BASE_URL is not set. Please define EDUCORE_BACKEND_API in your .env file.");
+        setIsLoading(false);
+        return;
+      }
       try {
         // 1. Fetch real courses
         const courseRes = await fetch(`${API_BASE_URL}/courses`);
-        const courseData = await courseRes.json();
-        const loadedCourses: CourseType[] =
-          courseData.success && Array.isArray(courseData.courses) ? courseData.courses : [];
+        let loadedCourses: CourseType[] = [];
+        if (courseRes.ok) {
+          const contentType = courseRes.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            const courseData = await courseRes.json();
+            if (courseData.success && Array.isArray(courseData.courses)) {
+              loadedCourses = courseData.courses;
+            }
+          }
+        }
         setFeaturedCourses(loadedCourses);
 
         // 2. Fetch real categories
+        let loadedCats: any[] = [];
         const catRes = await fetch(`${API_BASE_URL}/categories`);
-        const catData = await catRes.json();
-        let loadedCats: any[] = catData.success && Array.isArray(catData.categories) ? catData.categories : [];
+        if (catRes.ok) {
+          const catContentType = catRes.headers.get("content-type");
+          if (catContentType && catContentType.includes("application/json")) {
+            const catData = await catRes.json();
+            if (catData.success && Array.isArray(catData.categories)) {
+              loadedCats = catData.categories;
+            }
+          }
+        }
 
         // If categories from DB, enrich each with real course count from loadedCourses
         if (loadedCats.length === 0 && loadedCourses.length > 0) {

@@ -212,16 +212,6 @@ cd edu-core
 npm install
 ```
 
-### 2️⃣ Configure Environment Variables
-
-Create a `.env` file in the root of the `edu-core` folder:
-
-```env
-# Backend API URL (Local Server)
-NEXT_PUBLIC_BACKEND_API=http://localhost:5000/api
-
-# Or use the live cloud backend:
-# NEXT_PUBLIC_BACKEND_API=https://edu-core-server-ten.vercel.app/api
 ```
 
 ### 3️⃣ Run Development Server

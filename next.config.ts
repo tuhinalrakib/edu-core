@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  env: {
+    EDUCORE_BACKEND_API: process.env.EDUCORE_BACKEND_API,
+  },
 };
 
 export default nextConfig;

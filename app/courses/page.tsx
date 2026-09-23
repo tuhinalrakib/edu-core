@@ -23,6 +23,11 @@ function CatalogContent() {
   useEffect(() => {
     const fetchCatalogData = async () => {
       setIsLoading(true);
+      if (!API_BASE_URL) {
+        console.warn("API_BASE_URL is not set. Please define EDUCORE_BACKEND_API in your .env file.");
+        setIsLoading(false);
+        return;
+      }
       try {
         // 1. Fetch real courses (with user authentication token if logged in)
         const token = typeof window !== "undefined" ? (localStorage.getItem("educore_token") || localStorage.getItem("token")) : null;
@@ -30,16 +35,30 @@ function CatalogContent() {
         if (token) headers.Authorization = `Bearer ${token}`;
 
         const res = await fetch(`${API_BASE_URL}/courses`, { headers });
-        const data = await res.json();
-        const loadedCourses: CourseType[] = data.success && Array.isArray(data.courses) ? data.courses : [];
+        let loadedCourses: CourseType[] = [];
+        if (res.ok) {
+          const contentType = res.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            const data = await res.json();
+            if (data.success && Array.isArray(data.courses)) {
+              loadedCourses = data.courses;
+            }
+          }
+        }
         setCourses(loadedCourses);
 
         // 2. Fetch real categories
+        let dbCats: string[] = [];
         const catRes = await fetch(`${API_BASE_URL}/categories`);
-        const catData = await catRes.json();
-        const dbCats: string[] = catData.success && Array.isArray(catData.categories)
-          ? catData.categories.map((c: any) => (typeof c === "string" ? c : c.name))
-          : [];
+        if (catRes.ok) {
+          const catContentType = catRes.headers.get("content-type");
+          if (catContentType && catContentType.includes("application/json")) {
+            const catData = await catRes.json();
+            if (catData.success && Array.isArray(catData.categories)) {
+              dbCats = catData.categories.map((c: any) => (typeof c === "string" ? c : c.name));
+            }
+          }
+        }
 
         // Extract from courses as fallback/supplement
         const courseCats = Array.from(new Set(loadedCourses.map((c) => c.category).filter(Boolean)));
