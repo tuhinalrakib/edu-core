@@ -16,7 +16,42 @@ import {
   ExternalLink,
   RefreshCw,
   Loader2,
+  Settings,
+  ChevronLeft,
+  ChevronRight,
+  Check,
+  SlidersHorizontal,
+  Gauge,
 } from "lucide-react";
+
+interface QualityOption {
+  id: string;
+  label: string;
+  ytQuality: string;
+  isHd?: boolean;
+}
+
+const QUALITY_OPTIONS: QualityOption[] = [
+  { id: "1080p", label: "1080p", ytQuality: "hd1080", isHd: true },
+  { id: "720p", label: "720p", ytQuality: "hd720", isHd: false },
+  { id: "480p", label: "480p", ytQuality: "large", isHd: false },
+  { id: "360p", label: "360p", ytQuality: "medium", isHd: false },
+  { id: "240p", label: "240p", ytQuality: "small", isHd: false },
+  { id: "144p", label: "144p", ytQuality: "tiny", isHd: false },
+  { id: "auto", label: "Auto", ytQuality: "default", isHd: false },
+];
+
+const getQualityLabel = (qId: string) => {
+  const match = QUALITY_OPTIONS.find((q) => q.id === qId || q.ytQuality === qId);
+  if (match) return match.label;
+  if (qId === "hd1080") return "1080p";
+  if (qId === "hd720") return "720p";
+  if (qId === "large") return "480p";
+  if (qId === "medium") return "360p";
+  if (qId === "small") return "240p";
+  if (qId === "tiny") return "144p";
+  return qId;
+};
 
 interface UniversalVideoPlayerProps {
   url?: string;
@@ -41,6 +76,9 @@ export function UniversalVideoPlayer({
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const settingsRef = useRef<HTMLDivElement>(null);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const qualityButtonRef = useRef<HTMLButtonElement>(null);
 
   // Providers where EduCore can control playback via API (YouTube or direct HTML5 video).
   // Google Drive and Vimeo provide their own full native player UI inside iframe.
@@ -58,6 +96,13 @@ export function UniversalVideoPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const hideControlsTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Settings & Quality State
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsView, setSettingsView] = useState<"main" | "quality" | "speed">("quality");
+  const [selectedQuality, setSelectedQuality] = useState<string>("auto");
+  const [detectedQuality, setDetectedQuality] = useState<string>("auto");
+  const [availableQualityLevels, setAvailableQualityLevels] = useState<string[]>([]);
 
   // Reset loading state and timeout whenever the video URL or parsed embed URL changes
   useEffect(() => {
@@ -128,6 +173,16 @@ export function UniversalVideoPlayer({
           if (data.info.duration !== undefined && data.info.duration > 0) {
             setDuration(Math.floor(data.info.duration));
           }
+          if (data.info.playbackQuality !== undefined) {
+            setDetectedQuality(data.info.playbackQuality);
+          }
+          if (
+            data.info.availableQualityLevels &&
+            Array.isArray(data.info.availableQualityLevels) &&
+            data.info.availableQualityLevels.length > 0
+          ) {
+            setAvailableQualityLevels(data.info.availableQualityLevels);
+          }
           if (data.info.playerState !== undefined) {
             if (data.info.playerState === 1) setIsPlaying(true);
             if (data.info.playerState === 2) setIsPlaying(false);
@@ -135,6 +190,10 @@ export function UniversalVideoPlayer({
               setIsPlaying(false);
               if (onEnded) onEnded();
             }
+          }
+        } else if (data && data.event === "onPlaybackQualityChange") {
+          if (typeof data.info === "string") {
+            setDetectedQuality(data.info);
           }
         } else if (data && data.event === "onStateChange") {
           if (data.info === 1) setIsPlaying(true);
@@ -149,13 +208,15 @@ export function UniversalVideoPlayer({
 
     window.addEventListener("message", handleMessage);
 
-    // Initial handshake with YouTube iframe
+    // Initial handshake with YouTube iframe & query quality
     const handshakeTimer = setTimeout(() => {
       if (iframeRef.current?.contentWindow) {
         iframeRef.current.contentWindow.postMessage(
           JSON.stringify({ event: "listening" }),
           "*"
         );
+        sendYoutubeCommand("getAvailableQualityLevels");
+        sendYoutubeCommand("getPlaybackQuality");
       }
     }, 1000);
 
@@ -163,7 +224,43 @@ export function UniversalVideoPlayer({
       window.removeEventListener("message", handleMessage);
       clearTimeout(handshakeTimer);
     };
-  }, [onEnded]);
+  }, [onEnded, sendYoutubeCommand]);
+
+  // Load preferred video quality from localStorage
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined") {
+        const saved = localStorage.getItem("educore_preferred_quality");
+        if (saved) {
+          setSelectedQuality(saved);
+          const match = QUALITY_OPTIONS.find((q) => q.id === saved);
+          if (match && parsed.provider === "youtube") {
+            sendYoutubeCommand("setPlaybackQuality", [match.ytQuality]);
+            sendYoutubeCommand("setPlaybackQualityRange", [match.ytQuality, match.ytQuality]);
+          }
+        }
+      }
+    } catch (e) {}
+  }, [parsed.provider, sendYoutubeCommand]);
+
+  // Click outside to close settings popover
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        showSettings &&
+        settingsRef.current &&
+        !settingsRef.current.contains(e.target as Node) &&
+        settingsButtonRef.current &&
+        !settingsButtonRef.current.contains(e.target as Node) &&
+        qualityButtonRef.current &&
+        !qualityButtonRef.current.contains(e.target as Node)
+      ) {
+        setShowSettings(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showSettings]);
 
   // Track Fullscreen state across standard & vendor-prefixed browser APIs
   useEffect(() => {
@@ -184,8 +281,15 @@ export function UniversalVideoPlayer({
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isFullscreen) {
-        setIsFullscreen(false);
+      if (e.key === "Escape") {
+        if (showSettings) {
+          setShowSettings(false);
+          e.stopPropagation();
+          return;
+        }
+        if (isFullscreen) {
+          setIsFullscreen(false);
+        }
       }
     };
 
@@ -202,7 +306,7 @@ export function UniversalVideoPlayer({
       document.removeEventListener("MSFullscreenChange", handleFullscreenChange);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isFullscreen]);
+  }, [isFullscreen, showSettings]);
 
   // Lock body scroll during fullscreen
   useEffect(() => {
@@ -221,7 +325,7 @@ export function UniversalVideoPlayer({
     if (hideControlsTimerRef.current) {
       clearTimeout(hideControlsTimerRef.current);
     }
-    if (isFullscreen) {
+    if (isFullscreen && !showSettings) {
       hideControlsTimerRef.current = setTimeout(() => {
         setShowControls(false);
       }, 3500);
@@ -379,6 +483,33 @@ export function UniversalVideoPlayer({
     const seconds = Math.floor(secs % 60);
     return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   };
+
+  // Handle Quality Selection
+  const handleQualitySelect = (qualityId: string, ytQuality: string) => {
+    setSelectedQuality(qualityId);
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.setItem("educore_preferred_quality", qualityId);
+      }
+    } catch (e) {}
+
+    if (parsed.isIframe && parsed.provider === "youtube") {
+      sendYoutubeCommand("setPlaybackQuality", [ytQuality]);
+      sendYoutubeCommand("setPlaybackQualityRange", [ytQuality, ytQuality]);
+    }
+
+    setTimeout(() => {
+      setShowSettings(false);
+    }, 220);
+  };
+
+  // Filter available options based on detected YouTube qualities if reported
+  const displayedQualityOptions =
+    availableQualityLevels.length > 0
+      ? QUALITY_OPTIONS.filter(
+          (opt) => opt.id === "auto" || availableQualityLevels.includes(opt.ytQuality)
+        )
+      : QUALITY_OPTIONS;
 
   if (!url || !parsed.isValid) {
     return (
@@ -634,125 +765,322 @@ export function UniversalVideoPlayer({
           className={`w-full bg-slate-950/95 border-t border-slate-800/90 px-3 sm:px-5 py-2.5 space-y-2 z-30 relative transition-all duration-300 ${
             isFullscreen && !showControls ? "opacity-0 pointer-events-none translate-y-4" : "opacity-100 pointer-events-auto translate-y-0"
           }`}
-        style={{
-          paddingBottom: isFullscreen ? "max(env(safe-area-inset-bottom, 12px), 12px)" : undefined,
-          paddingLeft: isFullscreen ? "max(env(safe-area-inset-left, 12px), 12px)" : undefined,
-          paddingRight: isFullscreen ? "max(env(safe-area-inset-right, 12px), 12px)" : undefined,
-        }}
-      >
-        {/* Progress / Seek Slider */}
-        <div className="flex items-center gap-2">
-          <input
-            type="range"
-            min="0"
-            max={duration || 100}
-            value={currentTime}
-            onChange={(e) => handleSeek(Number(e.target.value))}
-            className="w-full h-1.5 accent-purple-500 bg-slate-800 rounded-lg cursor-pointer transition-all hover:h-2"
-          />
-        </div>
-
-        {/* Control Bar Actions Row */}
-        <div className="flex items-center justify-between gap-3 text-white flex-wrap sm:flex-nowrap">
-          {/* Left: Play/Pause, Rewind, Forward, Sound Controller, Timestamp */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Play/Pause */}
-            <button
-              onClick={togglePlay}
-              className="w-8 h-8 rounded-xl bg-purple-600 hover:bg-purple-500 flex items-center justify-center text-white shadow-md shadow-purple-600/30 transition-all cursor-pointer"
-              title={isPlaying ? "Pause" : "Play"}
+          style={{
+            paddingBottom: isFullscreen ? "max(env(safe-area-inset-bottom, 12px), 12px)" : undefined,
+            paddingLeft: isFullscreen ? "max(env(safe-area-inset-left, 12px), 12px)" : undefined,
+            paddingRight: isFullscreen ? "max(env(safe-area-inset-right, 12px), 12px)" : undefined,
+          }}
+        >
+          {/* 🎬 YOUTUBE-STYLE SETTINGS & QUALITY POPUP MODAL */}
+          {showSettings && (
+            <div
+              ref={settingsRef}
+              onClick={(e) => e.stopPropagation()}
+              className="absolute bottom-full right-3 sm:right-5 mb-2.5 z-50 w-56 sm:w-60 bg-[#0f0f0f]/95 text-white backdrop-blur-2xl border border-zinc-800/90 rounded-2xl shadow-2xl shadow-black/95 overflow-hidden select-none animate-in fade-in zoom-in-95 duration-150"
+              style={{ maxHeight: "calc(100vh - 120px)" }}
             >
-              {isPlaying ? <Pause className="w-4 h-4 fill-white" /> : <Play className="w-4 h-4 ml-0.5 fill-white" />}
-            </button>
+              {/* VIEW 1: MAIN SETTINGS MENU */}
+              {settingsView === "main" && (
+                <div className="py-1">
+                  <div className="px-4 py-2 text-[10px] font-bold text-zinc-400 uppercase tracking-wider border-b border-zinc-800/70">
+                    Settings
+                  </div>
 
-            {/* -10s */}
-            <button
-              onClick={() => handleSeekOffset(-10)}
-              className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
-              title="Rewind 10 seconds"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
+                  {/* Quality Row */}
+                  <button
+                    type="button"
+                    onClick={() => setSettingsView("quality")}
+                    className="w-full px-4 py-3 flex items-center justify-between hover:bg-zinc-800/80 transition-colors text-left cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <SlidersHorizontal className="w-4 h-4 text-zinc-400 group-hover:text-white transition-colors" />
+                      <span className="text-xs sm:text-sm font-medium text-white">Quality</span>
+                    </div>
+                    <div className="flex items-center gap-1 text-xs text-zinc-400">
+                      <span className="font-semibold text-zinc-300">
+                        {selectedQuality === "auto"
+                          ? detectedQuality && detectedQuality !== "auto" && detectedQuality !== "default"
+                            ? `Auto (${getQualityLabel(detectedQuality)})`
+                            : "Auto"
+                          : `${getQualityLabel(selectedQuality)}${selectedQuality === "1080p" ? " HD" : ""}`}
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300 transition-colors" />
+                    </div>
+                  </button>
 
-            {/* +10s */}
-            <button
-              onClick={() => handleSeekOffset(10)}
-              className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
-              title="Forward 10 seconds"
-            >
-              <RotateCw className="w-4 h-4" />
-            </button>
+                  {/* Playback Speed Row */}
+                  <button
+                    type="button"
+                    onClick={() => setSettingsView("speed")}
+                    className="w-full px-4 py-3 flex items-center justify-between hover:bg-zinc-800/80 transition-colors text-left cursor-pointer group border-t border-zinc-800/50"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Gauge className="w-4 h-4 text-zinc-400 group-hover:text-white transition-colors" />
+                      <span className="text-xs sm:text-sm font-medium text-white">Playback speed</span>
+                    </div>
+                    <div className="flex items-center gap-1 text-xs text-zinc-400">
+                      <span className="font-semibold text-zinc-300">
+                        {playbackRate === 1 ? "Normal" : `${playbackRate}x`}
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300 transition-colors" />
+                    </div>
+                  </button>
+                </div>
+              )}
 
-            {/* 🔊 SOUND CONTROLLER (Volume Slider + Mute Button) */}
-            <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
+              {/* VIEW 2: YOUTUBE QUALITY SELECTOR (< Quality) - EXACT MATCH TO USER'S SCREENSHOT */}
+              {settingsView === "quality" && (
+                <div>
+                  {/* Header: < Quality */}
+                  <div className="flex items-center px-3.5 py-3 border-b border-zinc-800/80">
+                    <button
+                      type="button"
+                      onClick={() => setSettingsView("main")}
+                      className="p-1 -ml-1 mr-2 rounded-lg hover:bg-zinc-800 text-zinc-300 hover:text-white transition-colors cursor-pointer flex items-center justify-center"
+                      title="Back to Settings"
+                    >
+                      <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
+                    </button>
+                    <h4 className="text-xs sm:text-sm font-semibold text-white tracking-wide">Quality</h4>
+                  </div>
+
+                  {/* Quality options list */}
+                  <div className="p-1.5 space-y-0.5 max-h-64 sm:max-h-72 overflow-y-auto">
+                    {displayedQualityOptions.map((opt) => {
+                      const isSelected = selectedQuality === opt.id;
+                      return (
+                        <button
+                          type="button"
+                          key={opt.id}
+                          onClick={() => handleQualitySelect(opt.id, opt.ytQuality)}
+                          className={`w-full px-3 py-2 rounded-xl flex items-center transition-all text-left cursor-pointer group ${
+                            isSelected
+                              ? "bg-zinc-800/80 text-white font-semibold"
+                              : "text-zinc-200 hover:bg-zinc-800/60 hover:text-white"
+                          }`}
+                        >
+                          {/* Checkmark slot on the left (w-5 ensures perfect vertical alignment) */}
+                          <span className="w-5 flex items-center justify-start shrink-0 mr-2">
+                            {isSelected && <Check className="w-4 h-4 text-white stroke-[2.5]" />}
+                          </span>
+
+                          {/* Label (e.g. 1080p, 720p, 360p, 144p, Auto) */}
+                          <span className="text-xs sm:text-sm font-medium">
+                            {opt.label}
+                          </span>
+
+                          {/* HD superscript badge for 1080p */}
+                          {opt.isHd && (
+                            <span className="ml-1.5 -mt-1 text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider font-mono">
+                              HD
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* VIEW 3: PLAYBACK SPEED SUBMENU */}
+              {settingsView === "speed" && (
+                <div>
+                  {/* Header: < Playback speed */}
+                  <div className="flex items-center px-3.5 py-3 border-b border-zinc-800/80">
+                    <button
+                      type="button"
+                      onClick={() => setSettingsView("main")}
+                      className="p-1 -ml-1 mr-2 rounded-lg hover:bg-zinc-800 text-zinc-300 hover:text-white transition-colors cursor-pointer flex items-center justify-center"
+                      title="Back to Settings"
+                    >
+                      <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
+                    </button>
+                    <h4 className="text-xs sm:text-sm font-semibold text-white tracking-wide">Playback speed</h4>
+                  </div>
+
+                  {/* Speeds list */}
+                  <div className="p-1.5 space-y-0.5 max-h-64 sm:max-h-72 overflow-y-auto">
+                    {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) => {
+                      const isSelected = playbackRate === rate;
+                      return (
+                        <button
+                          type="button"
+                          key={rate}
+                          onClick={() => {
+                            handleSpeedChange(rate);
+                            setTimeout(() => setShowSettings(false), 200);
+                          }}
+                          className={`w-full px-3 py-2 rounded-xl flex items-center transition-all text-left cursor-pointer group ${
+                            isSelected
+                              ? "bg-zinc-800/80 text-white font-semibold"
+                              : "text-zinc-200 hover:bg-zinc-800/60 hover:text-white"
+                          }`}
+                        >
+                          <span className="w-5 flex items-center justify-start shrink-0 mr-2">
+                            {isSelected && <Check className="w-4 h-4 text-white stroke-[2.5]" />}
+                          </span>
+                          <span className="text-xs sm:text-sm font-medium">
+                            {rate === 1 ? "Normal (1x)" : `${rate}x`}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Progress / Seek Slider */}
+          <div className="flex items-center gap-2">
+            <input
+              type="range"
+              min="0"
+              max={duration || 100}
+              value={currentTime}
+              onChange={(e) => handleSeek(Number(e.target.value))}
+              className="w-full h-1.5 accent-purple-500 bg-slate-800 rounded-lg cursor-pointer transition-all hover:h-2"
+            />
+          </div>
+
+          {/* Control Bar Actions Row */}
+          <div className="flex items-center justify-between gap-3 text-white flex-wrap sm:flex-nowrap">
+            {/* Left: Play/Pause, Rewind, Forward, Sound Controller, Timestamp */}
+            <div className="flex items-center gap-2 sm:gap-3">
+              {/* Play/Pause */}
               <button
-                onClick={toggleMute}
-                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
-                title={isMuted ? "Unmute" : "Mute"}
+                onClick={togglePlay}
+                className="w-8 h-8 rounded-xl bg-purple-600 hover:bg-purple-500 flex items-center justify-center text-white shadow-md shadow-purple-600/30 transition-all cursor-pointer"
+                title={isPlaying ? "Pause" : "Play"}
               >
-                {isMuted || volume === 0 ? (
-                  <VolumeX className="w-4 h-4 text-rose-400" />
-                ) : volume < 50 ? (
-                  <Volume1 className="w-4 h-4 text-purple-400" />
-                ) : (
-                  <Volume2 className="w-4 h-4 text-purple-400" />
-                )}
+                {isPlaying ? <Pause className="w-4 h-4 fill-white" /> : <Play className="w-4 h-4 ml-0.5 fill-white" />}
               </button>
 
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={isMuted ? 0 : volume}
-                  onChange={(e) => handleVolumeChange(Number(e.target.value))}
-                  className="w-16 sm:w-24 h-1.5 accent-purple-500 bg-slate-800 rounded-lg cursor-pointer"
-                  title={`Volume: ${isMuted ? 0 : volume}%`}
-                />
-                <span className="text-[10px] font-mono text-slate-400 w-7 hidden sm:inline">
-                  {isMuted ? "0%" : `${volume}%`}
-                </span>
+              {/* -10s */}
+              <button
+                onClick={() => handleSeekOffset(-10)}
+                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                title="Rewind 10 seconds"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
+
+              {/* +10s */}
+              <button
+                onClick={() => handleSeekOffset(10)}
+                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                title="Forward 10 seconds"
+              >
+                <RotateCw className="w-4 h-4" />
+              </button>
+
+              {/* 🔊 SOUND CONTROLLER (Volume Slider + Mute Button) */}
+              <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
+                <button
+                  onClick={toggleMute}
+                  className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                  title={isMuted ? "Unmute" : "Mute"}
+                >
+                  {isMuted || volume === 0 ? (
+                    <VolumeX className="w-4 h-4 text-rose-400" />
+                  ) : volume < 50 ? (
+                    <Volume1 className="w-4 h-4 text-purple-400" />
+                  ) : (
+                    <Volume2 className="w-4 h-4 text-purple-400" />
+                  )}
+                </button>
+
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={isMuted ? 0 : volume}
+                    onChange={(e) => handleVolumeChange(Number(e.target.value))}
+                    className="w-16 sm:w-24 h-1.5 accent-purple-500 bg-slate-800 rounded-lg cursor-pointer"
+                    title={`Volume: ${isMuted ? 0 : volume}%`}
+                  />
+                  <span className="text-[10px] font-mono text-slate-400 w-7 hidden sm:inline">
+                    {isMuted ? "0%" : `${volume}%`}
+                  </span>
+                </div>
+              </div>
+
+              {/* Timestamp */}
+              <div className="text-[11px] font-mono text-slate-300 hidden md:block">
+                <span>{formatTime(currentTime)}</span>
+                {duration > 0 && <span className="text-slate-500"> / {formatTime(duration)}</span>}
               </div>
             </div>
 
-            {/* Timestamp */}
-            <div className="text-[11px] font-mono text-slate-300 hidden md:block">
-              <span>{formatTime(currentTime)}</span>
-              {duration > 0 && <span className="text-slate-500"> / {formatTime(duration)}</span>}
-            </div>
-          </div>
+            {/* Right: Quality Button, Settings Gear, Fullscreen */}
+            <div className="flex items-center gap-1.5 sm:gap-2.5">
+              {/* Quality Button (Directly opens < Quality popup!) */}
+              <button
+                ref={qualityButtonRef}
+                type="button"
+                onClick={() => {
+                  if (showSettings && settingsView === "quality") {
+                    setShowSettings(false);
+                  } else {
+                    setSettingsView("quality");
+                    setShowSettings(true);
+                  }
+                }}
+                className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1 cursor-pointer select-none ${
+                  showSettings && settingsView === "quality"
+                    ? "bg-purple-600 text-white border-purple-500 shadow-md shadow-purple-600/30"
+                    : "bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-800"
+                }`}
+                title="Select Video Quality"
+              >
+                <span className="text-[11px] font-semibold">
+                  {selectedQuality === "auto" ? "Auto" : selectedQuality}
+                </span>
+                {selectedQuality === "1080p" && (
+                  <span className="text-[9px] font-extrabold text-purple-300 font-mono -mt-0.5">HD</span>
+                )}
+              </button>
 
-          {/* Right: Speed & Fullscreen */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Speed Selector */}
-            <div className="flex items-center bg-slate-900 border border-slate-800 rounded-xl px-1.5 py-0.5">
-              {[0.75, 1, 1.25, 1.5, 2].map((rate) => (
-                <button
-                  key={rate}
-                  onClick={() => handleSpeedChange(rate)}
-                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                    playbackRate === rate
-                      ? "bg-purple-600 text-white shadow-sm"
-                      : "text-slate-400 hover:text-white"
+              {/* Settings (Gear) Icon Button */}
+              <button
+                ref={settingsButtonRef}
+                type="button"
+                onClick={() => {
+                  if (showSettings && settingsView === "main") {
+                    setShowSettings(false);
+                  } else {
+                    setSettingsView("main");
+                    setShowSettings(true);
+                  }
+                }}
+                className={`p-2 rounded-xl border transition-all cursor-pointer flex items-center justify-center select-none ${
+                  showSettings && settingsView === "main"
+                    ? "bg-purple-600 text-white border-purple-500 shadow-md shadow-purple-600/30"
+                    : "bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-800"
+                }`}
+                title="Settings (Quality, Speed)"
+              >
+                <Settings
+                  className={`w-4 h-4 transition-transform duration-300 ${
+                    showSettings ? "rotate-45 text-white" : "text-slate-300"
                   }`}
-                >
-                  {rate}x
-                </button>
-              ))}
-            </div>
+                />
+              </button>
 
-            {/* ⛶ FULLSCREEN BUTTON */}
-            <button
-              onClick={toggleFullscreen}
-              className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all shadow-md shadow-purple-600/30 flex items-center gap-1.5 cursor-pointer hover:scale-105"
-              title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
-            >
-              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-              <span className="hidden sm:inline">{isFullscreen ? "Exit Fullscreen" : "Fullscreen"}</span>
-            </button>
+              {/* ⛶ FULLSCREEN BUTTON */}
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all shadow-md shadow-purple-600/30 flex items-center gap-1.5 cursor-pointer hover:scale-105"
+                title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+              >
+                {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                <span className="hidden sm:inline">{isFullscreen ? "Exit Fullscreen" : "Fullscreen"}</span>
+              </button>
+            </div>
           </div>
         </div>
-      </div>
       )}
     </div>
   );

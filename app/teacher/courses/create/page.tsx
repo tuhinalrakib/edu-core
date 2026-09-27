@@ -325,6 +325,8 @@ function CourseBuilderContent() {
 
   const [isUploadingVideo, setIsUploadingVideo] = useState(false);
   const [isSavingCourse, setIsSavingCourse] = useState(false);
+  const [isGeneratingAiMcq, setIsGeneratingAiMcq] = useState(false);
+  const [generatingLessonIdx, setGeneratingLessonIdx] = useState<{ sIdx: number; lIdx: number } | null>(null);
 
   const handleLessonVideoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -648,6 +650,145 @@ function CourseBuilderContent() {
       },
     };
     setActiveModalLesson({ ...activeModalLesson, lesson: updatedLesson });
+  };
+
+  // Generate 10 Deep Learning MCQs via Google Gemini AI
+  const handleGenerateAiMcqs = async (targetSIdx?: number, targetLIdx?: number) => {
+    let sIdx = targetSIdx;
+    let lIdx = targetLIdx;
+    let targetLesson = activeModalLesson?.lesson;
+
+    if (sIdx !== undefined && lIdx !== undefined) {
+      targetLesson = sections[sIdx]?.lessons[lIdx];
+    } else if (activeModalLesson) {
+      sIdx = activeModalLesson.sIdx;
+      lIdx = activeModalLesson.lIdx;
+    }
+
+    if (!targetLesson || sIdx === undefined || lIdx === undefined) {
+      Swal.fire({
+        icon: "warning",
+        title: "No Lesson Selected",
+        text: "Please select or open a lesson first to generate MCQs.",
+        background: "#0f172a",
+        color: "#ffffff",
+      });
+      return;
+    }
+
+    if (!targetLesson.title || !targetLesson.title.trim()) {
+      Swal.fire({
+        icon: "warning",
+        title: "Lesson Title Required",
+        text: "Please provide a title for the lesson first so Gemini AI can deeply analyze its topic and core learning objectives.",
+        background: "#0f172a",
+        color: "#ffffff",
+      });
+      return;
+    }
+
+    try {
+      setIsGeneratingAiMcq(true);
+      setGeneratingLessonIdx({ sIdx, lIdx });
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      const res = await fetch(`${API_BASE_URL}/ai/generate-lesson-mcq`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          lessonTitle: targetLesson.title,
+          lessonDescription: targetLesson.description || "",
+          videoUrl: targetLesson.contentUrl || "",
+          courseTitle: title || "Course Curriculum",
+          category: category || "Computer Science",
+          targetCount: 10,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || "Failed to generate AI MCQs");
+      }
+
+      const generatedQuestions = data.questions || [];
+
+      const currentQuiz = targetLesson.quiz || {
+        title: `${targetLesson.title} Assessment Quiz (10 MCQs)`,
+        timeLimitMins: 15,
+        passMarkPercent: 75,
+        randomize: true,
+        questions: [],
+      };
+
+      const updatedQuiz = {
+        ...currentQuiz,
+        title: currentQuiz.title || `${targetLesson.title} Assessment Quiz (10 MCQs)`,
+        questions: generatedQuestions,
+      };
+
+      // Update sections in state
+      const updatedSections = [...sections];
+      updatedSections[sIdx].lessons[lIdx] = {
+        ...updatedSections[sIdx].lessons[lIdx],
+        quiz: updatedQuiz,
+      };
+      setSections(updatedSections);
+
+      // If modal is currently open for this lesson, update modal state & switch to quiz tab
+      if (activeModalLesson && activeModalLesson.sIdx === sIdx && activeModalLesson.lIdx === lIdx) {
+        setActiveModalLesson({
+          ...activeModalLesson,
+          lesson: { ...activeModalLesson.lesson, quiz: updatedQuiz },
+        });
+        setActiveModalTab("quiz");
+      } else {
+        // Open modal so teacher can immediately preview & customize the 10 questions
+        setActiveModalLesson({
+          sIdx,
+          lIdx,
+          lesson: { ...targetLesson, quiz: updatedQuiz },
+        });
+        setActiveModalTab("quiz");
+      }
+
+      Swal.fire({
+        icon: "success",
+        title: "✨ 10 Deep Learning MCQs Generated!",
+        html: `
+          <div class="text-left text-xs space-y-2 text-slate-200 mt-2">
+            <p class="text-emerald-400 font-semibold">
+              ✓ Successfully generated 10 conceptual MCQs based on deep analysis of this lecture!
+            </p>
+            <p class="text-slate-300">
+              Each question includes 4 plausible options, correct answer keys, and pedagogical explanations.
+            </p>
+            <div class="bg-purple-950/40 border border-purple-500/30 rounded-xl p-3 text-purple-200 mt-2">
+              💡 <strong>Teacher Tip:</strong> You can review, edit, or customize any question/option, then click <strong>"Apply Changes"</strong> and <strong>"Update Course Details"</strong> to save.
+            </div>
+          </div>
+        `,
+        background: "#0f172a",
+        color: "#ffffff",
+        confirmButtonColor: "#7c3aed",
+      });
+    } catch (err: any) {
+      console.error("AI MCQ Generation error:", err);
+      Swal.fire({
+        icon: "error",
+        title: "AI Generation Failed",
+        text: err.message || "Failed to generate MCQs. Please try again.",
+        background: "#0f172a",
+        color: "#ffffff",
+      });
+    } finally {
+      setIsGeneratingAiMcq(false);
+      setGeneratingLessonIdx(null);
+    }
   };
 
   const [isUploadingThumbnail, setIsUploadingThumbnail] = useState(false);
@@ -1309,6 +1450,25 @@ function CourseBuilderContent() {
                                   <div className="flex items-center gap-1.5">
                                     <button
                                       type="button"
+                                      disabled={isGeneratingAiMcq && generatingLessonIdx?.sIdx === sIdx && generatingLessonIdx?.lIdx === lIdx}
+                                      onClick={() => handleGenerateAiMcqs(sIdx, lIdx)}
+                                      className="px-2.5 py-0.5 rounded-lg bg-gradient-to-r from-purple-900/90 via-indigo-950/90 to-purple-800/90 hover:from-purple-800 hover:to-indigo-800 text-purple-200 border border-purple-500/50 text-[10px] font-bold flex items-center gap-1 transition-all shadow-sm hover:scale-[1.03] cursor-pointer disabled:opacity-50"
+                                      title="Generate 10 Deep Learning MCQs with Gemini AI"
+                                    >
+                                      {isGeneratingAiMcq && generatingLessonIdx?.sIdx === sIdx && generatingLessonIdx?.lIdx === lIdx ? (
+                                        <>
+                                          <Loader2 className="w-2.5 h-2.5 animate-spin text-purple-300" />
+                                          <span>Generating...</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Sparkles className="w-2.5 h-2.5 text-amber-300 animate-pulse" />
+                                          <span>{lesson.quiz?.questions?.length ? `✨ AI MCQs (${lesson.quiz.questions.length})` : "✨ AI 10 MCQs"}</span>
+                                        </>
+                                      )}
+                                    </button>
+                                    <button
+                                      type="button"
                                       onClick={() => handleAddNextItemAfter(sIdx, lIdx, "quiz")}
                                       className={`px-2 py-0.5 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all border ${
                                         lesson.quiz
@@ -1703,6 +1863,67 @@ function CourseBuilderContent() {
                   </div>
                 )}
 
+                {/* AI Quiz Assessment Quick Banner (if video lesson doesn't have a quiz attached yet) */}
+                {activeModalLesson.lesson.type === "video" && !activeModalLesson.lesson.quiz && (
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/40 via-slate-900/80 to-indigo-950/40 border border-purple-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0">
+                        <Sparkles className="w-5 h-5 text-amber-300 animate-pulse" />
+                      </div>
+                      <div>
+                        <h5 className="text-xs font-bold text-white flex items-center gap-1.5">
+                          <span>Attach End-of-Lesson Assessment (10 MCQs)</span>
+                          <span className="px-1.5 py-0.5 rounded text-[9px] bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30">Gemini AI</span>
+                        </h5>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Analyze this lesson video deeply to automatically formulate 10 core conceptual MCQs with explanations.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        disabled={isGeneratingAiMcq}
+                        onClick={() => handleGenerateAiMcqs()}
+                        className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-purple-950/50 hover:scale-[1.02] transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        {isGeneratingAiMcq ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Generating...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                            <span>✨ Generate 10 AI MCQs</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveModalLesson({
+                            ...activeModalLesson,
+                            lesson: {
+                              ...activeModalLesson.lesson,
+                              quiz: {
+                                title: `${activeModalLesson.lesson.title || "Lesson"} Quiz`,
+                                timeLimitMins: 15,
+                                passMarkPercent: 75,
+                                randomize: true,
+                                questions: [],
+                              },
+                            },
+                          });
+                        }}
+                        className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-semibold transition-all"
+                      >
+                        + Add Quiz Manually
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* 2. ATTACHED / DIRECT QUIZ SETTINGS BUILDER (Shown right after video if quiz is added) */}
                 {(activeModalLesson.lesson.type === "quiz" || activeModalLesson.lesson.quiz) && (
                   <div className="space-y-4 p-4 rounded-2xl bg-slate-950 border border-amber-500/30">
@@ -1717,6 +1938,25 @@ function CourseBuilderContent() {
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={isGeneratingAiMcq}
+                          onClick={() => handleGenerateAiMcqs()}
+                          className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-purple-900/30 shrink-0 cursor-pointer disabled:opacity-50"
+                          title="Generate 10 Deep Learning MCQs with Gemini AI"
+                        >
+                          {isGeneratingAiMcq ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-200" />
+                              <span>Generating 10 MCQs...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
+                              <span>✨ Generate 10 AI MCQs (Gemini)</span>
+                            </>
+                          )}
+                        </button>
                         <button
                           type="button"
                           onClick={handleAddQuestionToQuiz}
@@ -1799,16 +2039,44 @@ function CourseBuilderContent() {
 
                     <div className="space-y-4 pt-2">
                       {(!activeModalLesson.lesson.quiz?.questions || activeModalLesson.lesson.quiz.questions.length === 0) && (
-                        <div className="p-6 rounded-2xl bg-slate-900/50 border border-dashed border-slate-800 text-center space-y-2">
-                          <HelpCircle className="w-8 h-8 text-slate-500 mx-auto" />
-                          <p className="text-xs text-slate-400 font-medium">No questions added yet to this Quiz.</p>
-                          <button
-                            type="button"
-                            onClick={handleAddQuestionToQuiz}
-                            className="px-4 py-2 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold hover:bg-amber-500/30"
-                          >
-                            + Add First MCQ Question
-                          </button>
+                        <div className="p-8 rounded-2xl bg-slate-900/60 border border-dashed border-slate-800 text-center space-y-4">
+                          <div className="w-12 h-12 rounded-2xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center mx-auto text-purple-400">
+                            <Sparkles className="w-6 h-6 animate-pulse text-amber-300" />
+                          </div>
+                          <div>
+                            <h5 className="text-sm font-bold text-white">No questions added yet to this Quiz</h5>
+                            <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                              Let Google Gemini AI deeply analyze your video topic to create 10 conceptual, high-retention MCQs, or build questions manually.
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                            <button
+                              type="button"
+                              disabled={isGeneratingAiMcq}
+                              onClick={() => handleGenerateAiMcqs()}
+                              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-purple-950/50 hover:scale-105 transition-all cursor-pointer disabled:opacity-50"
+                            >
+                              {isGeneratingAiMcq ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 animate-spin text-purple-200" />
+                                  <span>Analyzing Video & Generating 10 MCQs...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+                                  <span>✨ Generate 10 Deep Learning MCQs with Gemini</span>
+                                </>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleAddQuestionToQuiz}
+                              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-all"
+                            >
+                              <Plus className="w-4 h-4 text-slate-400" />
+                              <span>+ Add Manually</span>
+                            </button>
+                          </div>
                         </div>
                       )}
 
